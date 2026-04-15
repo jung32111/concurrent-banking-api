@@ -51,7 +51,6 @@ public class IdempotencyFilter extends OncePerRequestFilter {
         }
         ContentCachingRequestWrapper wrappedRequest = new ContentCachingRequestWrapper(request);
         ContentCachingResponseWrapper wrappedResponse = new ContentCachingResponseWrapper(response);
-        wrappedRequest.getInputStream().readAllBytes();
 
         // 캐시 조회 — getResponse() 한 번으로 멱등성 판단
         Optional<String> stored = idempotencyStore.getResponse(key);

@@ -1,5 +1,11 @@
 # Account Service
 
+![CI](https://github.com/jung32111/banking-transaction-system/actions/workflows/ci.yml/badge.svg)
+![Java](https://img.shields.io/badge/Java-21-007396?logo=openjdk&logoColor=white)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.3-6DB33F?logo=spring&logoColor=white)
+![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1?logo=mysql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)
+
 계좌 관리 및 이체를 처리하는 Spring Boot 기반 뱅킹 백엔드 API.
 금융권 포트폴리오 목적으로 **동시성 제어 · 멱등성 · 감사 로그 · JWT 인증** 을 중점적으로 구현하였습니다.
 
