@@ -55,4 +55,28 @@ public class AccountController {
         return ResponseEntity.ok(ApiResponse.ok(accountService.getBalance(accountNumber, userId)));
     }
 
+    // 계좌 동결 (분실신고 등)
+    @PostMapping("/{accountNumber}/freeze")
+    public ResponseEntity<ApiResponse<AccountResponse>> freeze(
+            @PathVariable String accountNumber,
+            @AuthenticationPrincipal Long userId) {
+        return ResponseEntity.ok(ApiResponse.ok(accountService.freeze(accountNumber, userId)));
+    }
+
+    // 계좌 동결 해제
+    @PostMapping("/{accountNumber}/unfreeze")
+    public ResponseEntity<ApiResponse<AccountResponse>> unfreeze(
+            @PathVariable String accountNumber,
+            @AuthenticationPrincipal Long userId) {
+        return ResponseEntity.ok(ApiResponse.ok(accountService.unfreeze(accountNumber, userId)));
+    }
+
+    // 휴면 계좌 활성화
+    @PostMapping("/{accountNumber}/activate")
+    public ResponseEntity<ApiResponse<AccountResponse>> activate(
+            @PathVariable String accountNumber,
+            @AuthenticationPrincipal Long userId) {
+        return ResponseEntity.ok(ApiResponse.ok(accountService.activate(accountNumber, userId)));
+    }
+
 }

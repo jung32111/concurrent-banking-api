@@ -5,6 +5,9 @@ public enum AuditAction {
     LOGIN,
     LOGOUT,
     ACCOUNT_CREATE,
+    ACCOUNT_FREEZE,
+    ACCOUNT_UNFREEZE,
+    ACCOUNT_ACTIVATE,
     DEPOSIT,
     WITHDRAW,
     TRANSFER

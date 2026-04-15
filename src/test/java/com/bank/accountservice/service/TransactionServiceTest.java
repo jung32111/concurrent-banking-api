@@ -9,6 +9,7 @@ import com.bank.accountservice.entity.User;
 import com.bank.accountservice.exception.AccountNotFoundException;
 import com.bank.accountservice.exception.InsufficientBalanceException;
 import com.bank.accountservice.exception.UnauthorizedAccessException;
+import com.bank.accountservice.policy.TransactionLimitPolicy;
 import com.bank.accountservice.repository.AccountRepository;
 import com.bank.accountservice.repository.TransactionRepository;
 import org.junit.jupiter.api.Test;
@@ -35,6 +36,7 @@ class TransactionServiceTest {
     @Mock private AccountRepository accountRepository;
     @Mock private TransactionRepository transactionRepository;
     @Mock private AuditLogService auditLogService;
+    @Mock private TransactionLimitPolicy transactionLimitPolicy;
 
     @InjectMocks private TransactionService transactionService;
 

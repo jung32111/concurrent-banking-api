@@ -16,7 +16,9 @@
 | 영역 | 구현 |
 |---|---|
 | 인증 | JWT Access Token + Refresh Token Rotation (RTR) |
-| 동시성 | `PESSIMISTIC_WRITE` 락 + 계좌번호 정렬 락 획득 순서 (데드락 방지) |
+| 동시성 | **Redisson 분산 락** + DB `PESSIMISTIC_WRITE` 이중 방어, 계좌번호 정렬 락 획득 (데드락 방지) |
+| 계좌 상태 | `ACTIVE` / `DORMANT` / `FROZEN` — 도메인 상태 머신, 비정상 상태에서 거래 차단 |
+| 거래 한도 | 1회 1,000만원 / 1일 5,000만원 — 실제 시중은행 비대면 기본 한도 반영 (`application.yml` 설정) |
 | 멱등성 | `Idempotency-Key` 헤더 기반 필터 (Redis / DB 이중 백엔드) |
 | 보안 | Rate Limiting (Bucket4j), PII 마스킹, Stateless 세션 |
 | 감사 | 모든 금융 거래 · 인증 이벤트 AuditLog 독립 트랜잭션 기록 (`REQUIRES_NEW`) |
@@ -28,7 +30,7 @@
 
 - **Language / Runtime**: Java 21, Spring Boot 3.4.3
 - **Persistence**: Spring Data JPA, MySQL 8
-- **Cache / Idempotency**: Redis
+- **Cache / Idempotency / Distributed Lock**: Redis, Redisson 3.37
 - **Security**: Spring Security, JJWT 0.11.5
 - **API Docs**: SpringDoc OpenAPI 2.8.5
 - **Rate Limiting**: Bucket4j 8.10.1
@@ -88,6 +90,9 @@ com.bank.accountservice
 | GET | `/accounts` | 내 계좌 목록 |
 | GET | `/accounts/{accountNumber}` | 계좌 조회 |
 | GET | `/accounts/{accountNumber}/balance` | 잔액 조회 |
+| POST | `/accounts/{accountNumber}/freeze` | 계좌 동결 (분실신고 등) |
+| POST | `/accounts/{accountNumber}/unfreeze` | 동결 해제 |
+| POST | `/accounts/{accountNumber}/activate` | 휴면 계좌 활성화 |
 
 ### Transaction / Transfer
 | Method | Path | 설명 |
@@ -112,6 +117,14 @@ Swagger UI: `http://localhost:8080/swagger-ui.html`
 A→B 이체와 B→A 이체가 동시에 발생해도 락 순서가 동일하므로 데드락이 발생하지 않습니다.
 → `TransferConcurrencyTest` 에서 검증.
 
+### 2-1. Redisson 분산 락 (다중 인스턴스 대비)
+단일 인스턴스에서는 DB 비관적 락만으로도 정합성이 유지되지만, **수평 확장 시 DB에만 의존하면 대기 큐가 DB 커넥션에 쌓여 장애 전파 위험**이 있습니다.
+- Redis(Redisson) 기반 분산 락을 **DB 락보다 앞단에 배치** → 앱 레벨에서 먼저 직렬화.
+- DB 비관적 락은 그대로 유지하여 **이중 방어(layered locking)**: 분산 락 만료/장애 시에도 DB 락이 최후의 정합성 보루.
+- `tryLock(waitTime=3s, leaseTime=5s)` — TTL로 클라이언트 크래시 시 자동 해제.
+- 멀티 락(이체)도 **계좌번호 사전순 고정**하여 데드락 원천 차단.
+- 상세: [`docs/distributed-lock.md`](docs/distributed-lock.md)
+
 ### 3. 멱등성 (Idempotency-Key)
 네트워크 재시도로 인한 **중복 이체 방지**를 위해 결제 업계 표준 패턴을 구현.
 - 같은 Key + 같은 요청 바디 → 캐시된 응답 반환 (`Idempotent-Replay: true` 헤더)
@@ -126,7 +139,22 @@ RT 사용 시마다 새로운 RT 발급 + 기존 RT는 `used=true`.
 `AuditLogService.record()` 는 `@Transactional(propagation = REQUIRES_NEW)`.
 본 트랜잭션이 롤백돼도 감사 기록은 보존됩니다 (컴플라이언스 요구사항).
 
-### 6. PII 마스킹
+### 6. 계좌 상태 머신 (Account Status)
+`ACTIVE` · `DORMANT` · `FROZEN` 세 상태를 도메인 모델로 관리.
+- **FROZEN** — 분실신고/법적 조치. 소유자 본인이 `POST /accounts/{no}/freeze` 로 즉시 동결 가능. 해제 전까지 모든 거래 차단.
+- **DORMANT** — 장기 미사용 휴면. 재활성화(`/activate`) 전까지 거래 불가. (자동 전환 배치는 향후 과제)
+- **상태 검증 위치**: 서비스가 아닌 **엔티티의 `deposit`/`withdraw` 내부**에서 `ensureTransactable()` 호출 → 모든 거래 경로(입출금·이체)가 **한 곳에서 일관되게 차단**되어 누락 방지.
+- 비정상 상태 거래 시도 → `AccountNotActiveException` → `409 Conflict`.
+
+### 7. 거래 한도 정책 (Transaction Limit)
+실제 시중은행 비대면 기본 한도를 반영: **1회 1,000만원 / 1일 5,000만원**.
+- `@ConfigurationProperties("bank.transaction.limit")` 로 주입 → 환경별 재설정 가능, 테스트는 낮은 값(1,000원 / 3,000원)으로 오버라이드하여 검증 경로 활성화.
+- 적용 범위: **출금성 거래(WITHDRAW, TRANSFER_OUT)** 만. 입금은 면제.
+- 일일 합계는 `SELECT SUM(amount) FROM transaction WHERE type IN (WITHDRAW, TRANSFER_OUT) AND created_at BETWEEN [00:00, next 00:00)` 로 산정.
+- **동시성 안전성**: 분산 락 + DB 비관적 락 안에서 합계 조회 → 금액 차감을 수행하므로, 동시 요청에서도 한도 판정이 race condition 없이 정확.
+- 초과 시 `TransactionLimitExceededException` → `422 Unprocessable Entity`, 타입(`PER_TRANSACTION` / `PER_DAY`)을 응답 메시지에 포함.
+
+### 8. PII 마스킹
 계좌번호 `100-12345678` → `100-****5678` 로 마스킹 후 로그/감사 출력.
 
 ---
@@ -171,17 +199,9 @@ export REDIS_PORT=6379
 | `TransactionServiceTest` | 입출금, 잔액 부족 |
 | `TransferServiceTest` | 이체 성공/실패, 자기 계좌 거부 |
 | `TransferConcurrencyTest` | 양방향 동시 이체 (데드락 없음) |
-
----
-
-## 📈 향후 개선 과제
-
-- [ ] Redisson 분산 락 도입 (다중 인스턴스 환경)
-- [ ] k6 / JMeter 부하 테스트 + TPS 그래프
-- [ ] Spring Boot Actuator + Prometheus / Grafana 모니터링
-- [ ] 거래 한도 정책 (1회 / 일일)
-- [ ] 계좌 상태 (ACTIVE / DORMANT / FROZEN)
-- [ ] Spring Batch 이자 계산 배치
+| `RedissonDistributedLockManagerTest` | 분산 락 획득/실패/인터럽트, 멀티락 사전순 |
+| `AccountStatusTest` | ACTIVE/DORMANT/FROZEN 상태 전이 및 거래 차단 |
+| `TransactionLimitPolicyTest` | 1회/일일 한도 검증, 경계값, 출금성 타입 한정 |
 
 ---
 

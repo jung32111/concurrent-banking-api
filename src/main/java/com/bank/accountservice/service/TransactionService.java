@@ -8,6 +8,7 @@ import com.bank.accountservice.entity.TransactionType;
 import com.bank.accountservice.exception.AccountNotFoundException;
 import com.bank.accountservice.exception.UnauthorizedAccessException;
 import com.bank.accountservice.entity.AuditAction;
+import com.bank.accountservice.policy.TransactionLimitPolicy;
 import com.bank.accountservice.repository.AccountRepository;
 import com.bank.accountservice.repository.TransactionRepository;
 import com.bank.accountservice.util.LogMaskingUtil;
@@ -28,6 +29,7 @@ public class TransactionService {
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
     private final AuditLogService auditLogService;
+    private final TransactionLimitPolicy transactionLimitPolicy;
 
     //거래와 거래내역을 트랜잭션으로 묶어서 원자성 보장
     @Transactional
@@ -41,6 +43,7 @@ public class TransactionService {
         if (request.getType() == TransactionType.DEPOSIT) {
             account.deposit(request.getAmount());
         } else {
+            transactionLimitPolicy.validate(account, request.getAmount());
             account.withdraw(request.getAmount());
         }
 

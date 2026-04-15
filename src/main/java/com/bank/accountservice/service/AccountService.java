@@ -87,6 +87,39 @@ public class AccountService {
         return account.getBalance();
     }
 
+    /** 계좌 동결 (분실신고/보안 이유로 소유자가 직접 차단). */
+    @Transactional
+    public AccountResponse freeze(String accountNumber, Long userId) {
+        log.info("[SERVICE] 계좌 동결 요청 - accountNumber: {}", LogMaskingUtil.maskAccountNumber(accountNumber));
+        Account account = findAccount(accountNumber);
+        validateOwner(account, userId);
+        account.freeze();
+        auditLogService.record(userId, AuditAction.ACCOUNT_FREEZE, accountNumber, null);
+        return AccountResponse.from(account);
+    }
+
+    /** 동결 해제. */
+    @Transactional
+    public AccountResponse unfreeze(String accountNumber, Long userId) {
+        log.info("[SERVICE] 계좌 동결 해제 요청 - accountNumber: {}", LogMaskingUtil.maskAccountNumber(accountNumber));
+        Account account = findAccount(accountNumber);
+        validateOwner(account, userId);
+        account.unfreeze();
+        auditLogService.record(userId, AuditAction.ACCOUNT_UNFREEZE, accountNumber, null);
+        return AccountResponse.from(account);
+    }
+
+    /** 휴면 계좌 활성화. */
+    @Transactional
+    public AccountResponse activate(String accountNumber, Long userId) {
+        log.info("[SERVICE] 휴면 계좌 활성화 요청 - accountNumber: {}", LogMaskingUtil.maskAccountNumber(accountNumber));
+        Account account = findAccount(accountNumber);
+        validateOwner(account, userId);
+        account.activate();
+        auditLogService.record(userId, AuditAction.ACCOUNT_ACTIVATE, accountNumber, null);
+        return AccountResponse.from(account);
+    }
+
     // 내부 전용 - 엔티티 직접 반환
     public Account getAccountEntity(String accountNumber, Long userId) {
         log.info("[SERVICE] 계좌 엔티티 조회 시작 - accountNumber: {}", LogMaskingUtil.maskAccountNumber(accountNumber));

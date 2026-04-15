@@ -1,6 +1,7 @@
 package com.bank.accountservice.dto;
 
 import com.bank.accountservice.entity.Account;
+import com.bank.accountservice.entity.AccountStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -19,6 +20,7 @@ public class AccountResponse {
     private String accountNumber;
     private String ownerName;
     private BigDecimal balance;
+    private AccountStatus status;
     private LocalDateTime createdAt;
 
 
@@ -28,6 +30,7 @@ public class AccountResponse {
                 .accountNumber(account.getAccountNumber())
                 .ownerName(account.getOwnerName())
                 .balance(account.getBalance())
+                .status(account.getStatus())
                 .createdAt(account.getCreatedAt())
                 .build();
     }

@@ -6,12 +6,16 @@ import com.bank.accountservice.entity.Account;
 import com.bank.accountservice.entity.Transaction;
 import com.bank.accountservice.entity.TransactionType;
 import com.bank.accountservice.entity.User;
+import com.bank.accountservice.exception.AccountNotActiveException;
 import com.bank.accountservice.exception.AccountNotFoundException;
 import com.bank.accountservice.exception.InsufficientBalanceException;
 import com.bank.accountservice.exception.UnauthorizedAccessException;
+import com.bank.accountservice.lock.DistributedLockManager;
+import com.bank.accountservice.policy.TransactionLimitPolicy;
 import com.bank.accountservice.repository.AccountRepository;
 import com.bank.accountservice.repository.TransactionRepository;
 import com.bank.accountservice.service.AuditLogService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -20,14 +24,18 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Callable;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -46,8 +54,25 @@ class TransferServiceTest {
     @Mock
     private AuditLogService auditLogService;
 
+    @Mock
+    private DistributedLockManager lockManager;
+
+    @Mock
+    private TransactionTemplate transactionTemplate;
+
+    @Mock
+    private TransactionLimitPolicy transactionLimitPolicy;
+
     @InjectMocks
     private TransferService transferService;
+
+    @BeforeEach
+    void setUpLockAndTx() {
+        when(lockManager.executeWithMultiLock(any(), any(), anyLong(), anyLong(), any()))
+                .thenAnswer(invocation -> ((Callable<?>) invocation.getArgument(4)).call());
+        when(transactionTemplate.execute(any()))
+                .thenAnswer(invocation -> ((TransactionCallback<?>) invocation.getArgument(0)).doInTransaction(null));
+    }
 
     @Test
     void transfer_success_updatesBalancesAndSavesTwoLogsInSortedLockOrder() {
@@ -107,6 +132,40 @@ class TransferServiceTest {
 
         assertThatThrownBy(() -> transferService.transfer(request, 1L))
                 .isInstanceOf(AccountNotFoundException.class);
+        verify(transactionRepository, never()).save(any(Transaction.class));
+    }
+
+    @Test
+    void transfer_fromAccountFrozen_throwsAccountNotActiveException() {
+        User user = createUser(1L);
+        Account from = createAccount("100-00000001", user, new BigDecimal("1000.00"));
+        Account to = createAccount("200-00000002", user, new BigDecimal("500.00"));
+        from.freeze();
+
+        when(accountRepository.findByAccountNumberWithLock("100-00000001")).thenReturn(Optional.of(from));
+        when(accountRepository.findByAccountNumberWithLock("200-00000002")).thenReturn(Optional.of(to));
+
+        TransferRequest request = new TransferRequest("100-00000001", "200-00000002", new BigDecimal("100.00"));
+
+        assertThatThrownBy(() -> transferService.transfer(request, 1L))
+                .isInstanceOf(AccountNotActiveException.class);
+        verify(transactionRepository, never()).save(any(Transaction.class));
+    }
+
+    @Test
+    void transfer_toAccountDormant_throwsAccountNotActiveException() {
+        User user = createUser(1L);
+        Account from = createAccount("100-00000001", user, new BigDecimal("1000.00"));
+        Account to = createAccount("200-00000002", user, new BigDecimal("500.00"));
+        to.markDormant();
+
+        when(accountRepository.findByAccountNumberWithLock("100-00000001")).thenReturn(Optional.of(from));
+        when(accountRepository.findByAccountNumberWithLock("200-00000002")).thenReturn(Optional.of(to));
+
+        TransferRequest request = new TransferRequest("100-00000001", "200-00000002", new BigDecimal("100.00"));
+
+        assertThatThrownBy(() -> transferService.transfer(request, 1L))
+                .isInstanceOf(AccountNotActiveException.class);
         verify(transactionRepository, never()).save(any(Transaction.class));
     }
 

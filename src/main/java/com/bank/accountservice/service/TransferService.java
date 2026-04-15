@@ -9,29 +9,56 @@ import com.bank.accountservice.entity.AuditAction;
 import com.bank.accountservice.exception.AccountNotFoundException;
 import com.bank.accountservice.exception.InsufficientBalanceException;
 import com.bank.accountservice.exception.UnauthorizedAccessException;
+import com.bank.accountservice.lock.DistributedLockManager;
+import com.bank.accountservice.policy.TransactionLimitPolicy;
 import com.bank.accountservice.repository.AccountRepository;
 import com.bank.accountservice.repository.TransactionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 
+/**
+ * 이체 서비스.
+ *
+ * 동시성 전략 (이중 방어):
+ *   1) 외부(분산) 락 — Redisson {@link DistributedLockManager}
+ *      다중 인스턴스 환경에서 같은 계좌에 대한 동시 요청을 직렬화한다.
+ *      두 계좌 락은 사전순 정렬 후 획득 → 데드락 방지.
+ *   2) 내부(DB) 락 — {@link AccountRepository#findByAccountNumberWithLock(String)} (PESSIMISTIC_WRITE)
+ *      분산 락이 만료/실패했을 때의 최후 방어선.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class TransferService {
 
+    private static final long LOCK_WAIT_SECONDS = 3L;
+    private static final long LOCK_LEASE_SECONDS = 5L;
+
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
     private final AuditLogService auditLogService;
+    private final DistributedLockManager lockManager;
+    private final TransactionTemplate transactionTemplate;
+    private final TransactionLimitPolicy transactionLimitPolicy;
 
-    @Transactional
     public TransferResponse transfer(TransferRequest request, Long userId) {
         log.info("[SERVICE] TransferService.transfer() - 이체 시작");
-        validateSameAccount(request);  //같은 계좌로 입금 방지
+        validateSameAccount(request);
 
+        return lockManager.executeWithMultiLock(
+                request.fromAccountNumber(),
+                request.toAccountNumber(),
+                LOCK_WAIT_SECONDS,
+                LOCK_LEASE_SECONDS,
+                () -> transactionTemplate.execute(status -> doTransfer(request, userId))
+        );
+    }
+
+    private TransferResponse doTransfer(TransferRequest request, Long userId) {
         String firstAccountNumber = request.fromAccountNumber().compareTo(request.toAccountNumber()) <= 0
                 ? request.fromAccountNumber() : request.toAccountNumber();
         String secondAccountNumber = request.fromAccountNumber().compareTo(request.toAccountNumber()) <= 0
@@ -46,6 +73,7 @@ public class TransferService {
         Account toAccount = request.toAccountNumber().equals(firstAccountNumber) ? firstLocked : secondLocked;
 
         validateOwner(fromAccount, userId);
+        transactionLimitPolicy.validate(fromAccount, request.amount());
         validateSufficientBalance(fromAccount, request.amount());
 
         fromAccount.transferOut(request.amount());
@@ -99,4 +127,3 @@ public class TransferService {
         }
     }
 }
-

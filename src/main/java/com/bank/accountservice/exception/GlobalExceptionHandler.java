@@ -74,6 +74,25 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(ApiResponse.error(message));
     }
 
+    @ExceptionHandler(TransactionLimitExceededException.class)
+    public ResponseEntity<ApiResponse<Void>> handleTransactionLimitExceeded(TransactionLimitExceededException e) {
+        log.error("[ERROR] TransactionLimitExceededException - type={}, limit={}, attempted={}",
+                e.getLimitType(), e.getLimit(), e.getAttempted());
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(ApiResponse.error(e.getMessage()));
+    }
+
+    @ExceptionHandler(AccountNotActiveException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAccountNotActive(AccountNotActiveException e) {
+        log.error("[ERROR] AccountNotActiveException - status={}, {}", e.getStatus(), e.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.error(e.getMessage()));
+    }
+
+    @ExceptionHandler(LockAcquisitionException.class)
+    public ResponseEntity<ApiResponse<Void>> handleLockAcquisition(LockAcquisitionException e) {
+        log.error("[ERROR] LockAcquisitionException - {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.error("동시 처리 중인 요청이 있습니다. 잠시 후 재시도해주세요."));
+    }
+
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<ApiResponse<Void>> handleIllegalState(IllegalStateException e) {
         log.error("[ERROR] IllegalStateException - {}", e.getMessage());
