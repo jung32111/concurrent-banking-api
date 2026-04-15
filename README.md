@@ -165,7 +165,6 @@ export REDIS_PORT=6379
 | `TransactionServiceTest` | 입출금, 잔액 부족 |
 | `TransferServiceTest` | 이체 성공/실패, 자기 계좌 거부 |
 | `TransferConcurrencyTest` | 양방향 동시 이체 (데드락 없음) |
-| `IdempotencyFilterTest` | 멱등성 필터 |
 
 ---
 
