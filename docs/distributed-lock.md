@@ -14,7 +14,7 @@ Account to   = accountRepository.findByAccountNumberWithLock(toNo).orElseThrow()
 // ... balance 조작 + transaction 기록
 ```
 
-단일 인스턴스에서는 잘 동작했지만, **포트폴리오 목표인 "다중 인스턴스 수평 확장"** 을 고려할 때 다음 한계가 보였습니다.
+단일 인스턴스에서는 잘 동작했지만, **다중 인스턴스 수평 확장**을 고려할 때 다음 한계가 보였습니다.
 
 | 문제 | DB 락만 쓸 때 증상 |
 |---|---|

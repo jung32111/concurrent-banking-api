@@ -161,6 +161,23 @@ RT 사용 시마다 새로운 RT 발급 + 기존 RT는 `used=true`.
 
 ---
 
+## 📊 부하테스트 — Redisson 분산락 효과 측정
+
+k6로 소수 계좌에 150 VU를 몰아 락 경합을 유발, DB락 단독 vs Redisson+DB락 구성을 비교.
+
+| 구성 | TPS | avg(ms) | P95(ms) | 성공 | 500 에러 | 409 (빠른 거절) |
+|---|---:|---:|---:|---:|---:|---:|
+| Before (DB락 단독)   |  2.76 | 31,677 | 50,277 |     0 | 651 |     0 |
+| **After (Redisson+DB)** | **49.3** | **1,819** | **3,033** | **7,265** | **0** | 4,590 |
+
+- **TPS 17.9배 향상**, 평균 지연 94% 감소, 500 에러 완전 해소
+- DB락 단독: 모든 요청이 DB 행락 대기열에 몰려 커넥션 풀 포화 → 타임아웃 → 500
+- Redisson 도입 후: 앱 레벨에서 3초 내 빠르게 거절(409)하고 DB에 부하를 전달하지 않음
+
+상세 분석: [`docs/loadtest/README.md`](docs/loadtest/README.md) | 시각화 리포트: [`docs/loadtest/report.html`](docs/loadtest/report.html)
+
+---
+
 ## 🚀 실행 방법
 
 ### Docker Compose (권장)
@@ -205,8 +222,3 @@ export REDIS_PORT=6379
 | `AccountStatusTest` | ACTIVE / DORMANT / FROZEN 상태 전이 및 거래 차단 |
 | `TransactionLimitPolicyTest` | 1회·일일 한도 검증, 경계값, 출금성 타입 한정 |
 
----
-
-## 📄 License
-
-MIT License
