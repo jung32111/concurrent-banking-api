@@ -1,0 +1,122 @@
+# Load Test — Transfer Contention
+
+Redisson 분산락 도입 효과를 수치로 증명하기 위한 k6 부하테스트.
+
+## 1. 목적
+
+`docs/distributed-lock.md` §8 마지막 체크박스("부하테스트 기반 TPS Before/After 측정")를 채운다.
+소수 계좌에 트래픽을 몰아 **락 경합**을 인위적으로 유발하고, 두 구성의 수치를 비교한다.
+
+| 구성 | 락 계층 | 브랜치/설정 |
+|---|---|---|
+| **Before** | DB 비관적락 단독 | Redisson 경로를 우회/제거한 브랜치 (예: `perf/db-lock-only`) |
+| **After**  | Redisson + DB 비관적락 | `main` |
+
+## 2. 사전 준비
+
+- k6 설치 (`choco install k6` 또는 https://k6.io/docs/get-started/installation/)
+- 서버 기동 (`./gradlew bootRun`), Redis 기동
+- `docs/loadtest/results/` 디렉토리 생성 (결과 JSON 저장 위치)
+
+setup 단계에서 테스트 유저·계좌를 자동 생성하므로 별도 시딩은 불필요하다.
+
+## 3. 실행
+
+```bash
+# After (현재 main)
+BASE_URL=http://localhost:8080 \
+  k6 run --out json=results/after-raw.json \
+  docs/loadtest/02-transfer-contention.js
+
+# Before (DB락만 쓰는 브랜치로 체크아웃 후 서버 재기동)
+git checkout perf/db-lock-only
+# ... 서버 재기동
+BASE_URL=http://localhost:8080 \
+  k6 run --out json=results/before-raw.json \
+  docs/loadtest/02-transfer-contention.js
+```
+
+경합 강도 조절: `ACCOUNT_POOL=2 k6 run ...` (풀이 작을수록 충돌 ↑)
+
+## 4. 수집 지표
+
+| 지표 | 의미 |
+|---|---|
+| `tps` (`http_reqs.rate`) | 초당 처리 건수 |
+| `transfer_latency` p95/p99 | 사용자 체감 지연 |
+| `transfer_success` | 성공 카운트 |
+| `transfer_conflict_409` | 락 획득 실패(409) — 얼마나 빨리 거절했는가 |
+| `conflict_rate` | 전체 요청 중 409 비율 |
+
+## 5. 측정 결과 (2026-04-16)
+
+**조건**: 계좌 풀 4개, ramping-vus 10→150, 4분, 로컬 환경 (단일 인스턴스)
+
+| 구성 | TPS | avg(ms) | P95(ms) | 성공 | 500 에러 | 409 (락 거절) | 409 비율 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Before (DB락 단독)   |  2.76 | 31,677 | 50,277 |     0 | 651 |     0 |  0% |
+| After  (Redisson+DB) | 49.3  |  1,819 |  3,033 | 7,265 |   0 | 4,590 | 38.7% |
+
+### 핵심 수치
+
+- **TPS 17.9배 향상** (2.76 → 49.3)
+- **평균 지연 94% 감소** (31.7s → 1.8s)
+- **P95 지연 94% 감소** (50.3s → 3.0s)
+- **500 에러 완전 해소** (651건 → 0건)
+
+### TPS 비교
+
+```mermaid
+xychart-beta
+  title "초당 처리량 (TPS)"
+  x-axis ["DB락 단독", "Redisson + DB락"]
+  y-axis "TPS" 0 --> 60
+  bar [2.76, 49.3]
+```
+
+### 평균 응답 지연 비교
+
+```mermaid
+xychart-beta
+  title "평균 응답 지연 (ms)"
+  x-axis ["DB락 단독", "Redisson + DB락"]
+  y-axis "ms" 0 --> 35000
+  bar [31677, 1819]
+```
+
+### 응답 코드 분포
+
+```mermaid
+pie title Before (DB락 단독)
+  "500 에러" : 651
+  "성공(200)" : 0
+  "409 거절" : 0
+```
+
+```mermaid
+pie title After (Redisson + DB락)
+  "성공(200)" : 7265
+  "409 거절" : 4590
+  "500 에러" : 0
+```
+
+> 상세 시각화 리포트: [`report.html`](report.html)을 브라우저에서 열어 확인
+
+### Before에서 무슨 일이 일어났나
+
+DB 비관적락 단독 구성에서는 150 VU가 동시에 DB 행락 대기열에 몰렸다.
+- 요청당 평균 **31초** DB 커넥션 점유 → 커넥션 풀 포화 → 후속 요청 타임아웃
+- 락 대기 타임아웃 초과 시 **500 에러** (JPA `PessimisticLockException`)
+- 409(빠른 거절) 메커니즘이 없어 사용자 체감 지연이 극단적
+
+### After에서 무엇이 달라졌나
+
+Redisson 분산락이 앱 레벨에서 먼저 직렬화한다.
+- 락을 잡지 못한 요청은 3초 내에 **409로 빠르게 거절** → DB에 부하를 전달하지 않음
+- 락을 잡은 요청만 DB 트랜잭션을 열어 **실제 일하는 시간만큼만** 커넥션 점유
+- 결과: 500 에러 0건, 성공 7,265건, TPS 18배
+
+## 6. 해석 가이드
+
+- 409 비율이 올라간다고 나쁜 게 아니다 — 락 대기 중 무한정 DB 자원을 잡는 대신 **빠르게 거절**하고 클라이언트가 재시도하게 하는 것이 설계 의도.
+- DB 지표(커넥션 사용률, 대기 쓰레드)는 Actuator / `SHOW PROCESSLIST` 등으로 별도 수집해 같이 붙이면 설득력↑.

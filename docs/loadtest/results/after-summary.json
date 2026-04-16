@@ -1,0 +1,16 @@
+{
+  "scenario": "transfer-contention",
+  "account_pool": 4,
+  "http_reqs": 11865,
+  "tps": 49.259042207332776,
+  "latency_ms": {
+    "avg": 1819.093606039641,
+    "p95": 3032.8032000000003,
+    "p99": "n/a",
+    "max": 6071.4517
+  },
+  "success": 7265,
+  "conflict409": 4590,
+  "other_error": "n/a",
+  "conflict_rate": 0.3871784057359764
+}

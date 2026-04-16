@@ -183,7 +183,7 @@ public <T> T executeWithLock(String key, long waitSeconds, long leaseSeconds, Ca
 | `RedissonDistributedLockManagerTest` | 락 획득 성공/실패 → 예외 매핑, 멀티락 사전순 호출, unlock 보장 |
 | `TransferConcurrencyTest` | 실 Redis + H2로 A↔B 양방향 이체 동시 실행 → **데드락 없음 + 잔액 정합성 유지** |
 
-부하 환경에서의 TPS·P99 지연 측정은 이후 k6 시나리오(`docs/loadtest/`)에서 별도로 진행합니다.
+부하테스트 결과는 [`docs/loadtest/README.md`](loadtest/README.md)에 정리되어 있습니다.
 
 ---
 
@@ -195,4 +195,4 @@ public <T> T executeWithLock(String key, long waitSeconds, long leaseSeconds, Ca
 - [x] `isHeldByCurrentThread()` 로 **Safety** 보장 (타인의 락 해제 방지)
 - [x] 멀티락 **획득 순서 고정** — 데드락 없음
 - [x] DB 비관적 락을 **보조 방어선** 으로 유지
-- [ ] 부하테스트 기반 TPS Before/After 측정 (차기 작업)
+- [x] 부하테스트 기반 TPS Before/After 측정 — **TPS 17.9배 향상, P95 94% 감소** ([결과](loadtest/README.md))

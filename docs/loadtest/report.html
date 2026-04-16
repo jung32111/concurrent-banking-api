@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Redisson Load Test Report</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', -apple-system, sans-serif; background: #0f172a; color: #e2e8f0; padding: 2rem; }
+    h1 { text-align: center; font-size: 1.8rem; margin-bottom: 0.5rem; color: #f8fafc; }
+    .subtitle { text-align: center; color: #94a3b8; margin-bottom: 2rem; font-size: 0.9rem; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; max-width: 1100px; margin: 0 auto; }
+    .card { background: #1e293b; border-radius: 12px; padding: 1.5rem; border: 1px solid #334155; }
+    .card h2 { font-size: 1rem; color: #94a3b8; margin-bottom: 1rem; text-align: center; }
+    .card canvas { max-height: 300px; }
+    .full-width { grid-column: 1 / -1; }
+    .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; max-width: 1100px; margin: 0 auto 1.5rem; }
+    .kpi { background: #1e293b; border-radius: 12px; padding: 1.2rem; text-align: center; border: 1px solid #334155; }
+    .kpi .value { font-size: 2rem; font-weight: 700; color: #38bdf8; }
+    .kpi .label { font-size: 0.8rem; color: #94a3b8; margin-top: 0.3rem; }
+    .kpi.highlight .value { color: #4ade80; }
+    .kpi.danger .value { color: #f87171; }
+    .footer { text-align: center; color: #475569; margin-top: 2rem; font-size: 0.8rem; }
+  </style>
+</head>
+<body>
+  <h1>Redisson Distributed Lock - Load Test Report</h1>
+  <p class="subtitle">Transfer Contention Test | 2026-04-16 | Account Pool: 4 | VU: 10 &rarr; 150 | Duration: 4min</p>
+
+  <div class="kpi-row">
+    <div class="kpi highlight">
+      <div class="value">17.9x</div>
+      <div class="label">TPS Improvement</div>
+    </div>
+    <div class="kpi highlight">
+      <div class="value">94%</div>
+      <div class="label">Latency Reduction</div>
+    </div>
+    <div class="kpi highlight">
+      <div class="value">7,265</div>
+      <div class="label">Successful Transfers</div>
+    </div>
+    <div class="kpi danger">
+      <div class="value">651 &rarr; 0</div>
+      <div class="label">500 Errors Eliminated</div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>TPS (Throughput)</h2>
+      <canvas id="tpsChart"></canvas>
+    </div>
+    <div class="card">
+      <h2>Average Latency (ms)</h2>
+      <canvas id="latencyChart"></canvas>
+    </div>
+    <div class="card">
+      <h2>P95 Latency (ms)</h2>
+      <canvas id="p95Chart"></canvas>
+    </div>
+    <div class="card">
+      <h2>Error Rate</h2>
+      <canvas id="errorChart"></canvas>
+    </div>
+    <div class="card">
+      <h2>Before - Response Distribution</h2>
+      <canvas id="beforePie"></canvas>
+    </div>
+    <div class="card">
+      <h2>After - Response Distribution</h2>
+      <canvas id="afterPie"></canvas>
+    </div>
+    <div class="card full-width">
+      <h2>Summary Comparison</h2>
+      <canvas id="summaryChart"></canvas>
+    </div>
+  </div>
+
+  <p class="footer">Generated from k6 load test results &mdash; docs/loadtest/02-transfer-contention.js</p>
+
+<script>
+const BEFORE = '#f87171';
+const AFTER  = '#4ade80';
+const COLORS = { success: '#4ade80', conflict: '#facc15', error: '#f87171', zero: '#334155' };
+
+const barOpts = (label) => ({
+  responsive: true,
+  plugins: {
+    legend: { display: false },
+    tooltip: { callbacks: { label: ctx => `${ctx.parsed.y.toLocaleString()} ${label}` } }
+  },
+  scales: {
+    x: { ticks: { color: '#94a3b8' }, grid: { display: false } },
+    y: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' }, beginAtZero: true }
+  }
+});
+
+function barChart(id, data, label) {
+  new Chart(document.getElementById(id), {
+    type: 'bar',
+    data: {
+      labels: ['DB Lock Only', 'Redisson + DB Lock'],
+      datasets: [{ data, backgroundColor: [BEFORE, AFTER], borderRadius: 6, barPercentage: 0.5 }]
+    },
+    options: barOpts(label)
+  });
+}
+
+barChart('tpsChart',     [2.76, 49.3],    'req/s');
+barChart('latencyChart', [31677, 1819],   'ms');
+barChart('p95Chart',     [50277, 3033],   'ms');
+barChart('errorChart',   [651, 0],        'errors');
+
+function pieChart(id, data, labels, colors) {
+  new Chart(document.getElementById(id), {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{ data, backgroundColor: colors, borderWidth: 0 }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom', labels: { color: '#94a3b8', padding: 12 } }
+      }
+    }
+  });
+}
+
+pieChart('beforePie',
+  [651, 0],
+  ['500 Error', 'Success'],
+  [COLORS.error, COLORS.zero]
+);
+
+pieChart('afterPie',
+  [7265, 4590, 0],
+  ['Success (200)', 'Lock Reject (409)', '500 Error'],
+  [COLORS.success, COLORS.conflict, COLORS.zero]
+);
+
+new Chart(document.getElementById('summaryChart'), {
+  type: 'bar',
+  data: {
+    labels: ['TPS', 'Avg Latency (s)', 'P95 Latency (s)', 'Success Count (x100)', '500 Errors'],
+    datasets: [
+      { label: 'Before (DB Lock Only)',   data: [2.76, 31.7, 50.3, 0, 6.51],  backgroundColor: BEFORE, borderRadius: 4 },
+      { label: 'After (Redisson + DB)',    data: [49.3, 1.82, 3.03, 72.65, 0], backgroundColor: AFTER,  borderRadius: 4 }
+    ]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { labels: { color: '#94a3b8' } } },
+    scales: {
+      x: { ticks: { color: '#94a3b8' }, grid: { display: false } },
+      y: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' }, beginAtZero: true }
+    }
+  }
+});
+</script>
+</body>
+</html>
