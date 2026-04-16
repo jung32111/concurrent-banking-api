@@ -1,6 +1,6 @@
-# Load Test — Transfer Contention
+# Load Test
 
-Redisson 분산락 도입 효과를 수치로 증명하기 위한 k6 부하테스트.
+k6 부하테스트로 분산락·멱등성의 실제 효과를 수치로 증명한다.
 
 ## 1. 목적
 
@@ -119,3 +119,62 @@ Redisson 분산락이 앱 레벨에서 먼저 직렬화한다.
 ## 6. 해석 가이드
 
 - 409 비율이 올라간다고 나쁜 게 아니다 — 락 대기 중 무한정 DB 자원을 잡는 대신 **빠르게 거절**하고 클라이언트가 재시도하게 하는 것이 설계 의도.
+
+---
+
+# Idempotency Test — 멱등성 검증 (`04-idempotency.js`)
+
+## 목적
+
+같은 `Idempotency-Key`로 N번 이체 요청을 보내도 **잔액은 1번만 변하는지** 검증한다.
+
+## 실행
+
+```bash
+BASE_URL=http://localhost:8080 k6 run docs/loadtest/04-idempotency.js
+```
+
+## 측정 결과 (2026-04-16)
+
+**조건**: 20 VU x 5회 = 총 100건 요청, 동일 `Idempotency-Key` 사용
+
+| 항목 | 값 |
+|---|---|
+| 총 요청 | 100건 |
+| 실제 이체 처리 (최초 1건) | 1건 |
+| 캐시 응답 반환 (중복 감지) | 80건 |
+| 처리 중 동시 도착 거절 (IN_PROGRESS) | 19건 |
+| 잔액 변화 | 1,000,000 → 950,000 |
+| 차감 금액 | **정확히 50,000 (1회분)** |
+| `idempotencyVerified` | **true** |
+
+### 동작 흐름
+
+```mermaid
+sequenceDiagram
+    participant C1 as VU #1 (최초)
+    participant C2 as VU #2~20 (중복)
+    participant F as IdempotencyFilter
+    participant R as Redis
+    participant S as TransferService
+
+    C1->>F: POST /transfers (Key: abc-123)
+    F->>R: GET abc-123 → 없음
+    F->>R: SET abc-123 = IN_PROGRESS
+    F->>S: 이체 실행
+    C2->>F: POST /transfers (Key: abc-123)
+    F->>R: GET abc-123 → IN_PROGRESS
+    F-->>C2: 409 "처리 중입니다"
+    S-->>F: 200 OK (이체 완료)
+    F->>R: SET abc-123 = {200, 응답 본문}
+    F-->>C1: 200 OK
+    C2->>F: POST /transfers (Key: abc-123) [재시도]
+    F->>R: GET abc-123 → 캐시 응답
+    F-->>C2: 200 OK (X-Idempotency-Replayed: true)
+```
+
+### 핵심
+
+- 네트워크 재시도, 클라이언트 중복 클릭, 타임아웃 후 재전송 등 **어떤 경우에도 이체는 1번만 실행**
+- 중복 요청은 캐시된 원본 응답을 그대로 반환 → 클라이언트는 정상 응답을 받음
+- 처리 중 동시 도착 시 409로 즉시 거절 → 클라이언트가 재시도 가능

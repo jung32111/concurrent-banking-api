@@ -174,6 +174,10 @@ k6로 소수 계좌에 150 VU를 몰아 락 경합을 유발, DB락 단독 vs Re
 - DB락 단독: 모든 요청이 DB 행락 대기열에 몰려 커넥션 풀 포화 → 타임아웃 → 500
 - Redisson 도입 후: 앱 레벨에서 3초 내 빠르게 거절(409)하고 DB에 부하를 전달하지 않음
 
+### 멱등성 검증
+
+같은 `Idempotency-Key`로 **100건 동시 요청** → 잔액 차감은 **정확히 1회**. 중복 요청은 캐시 응답 반환, 처리 중 도착 시 409 즉시 거절.
+
 상세 분석: [`docs/loadtest/README.md`](docs/loadtest/README.md) | 시각화 리포트: [`docs/loadtest/report.html`](docs/loadtest/report.html)
 
 ---
