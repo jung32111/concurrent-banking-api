@@ -6,8 +6,8 @@
 ![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1?logo=mysql&logoColor=white)
 ![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)
 
-뱅킹 도메인에서 가장 까다로운 **동시성·정합성·멱등성** 문제를 실제 은행 서비스 수준으로 다룬 Spring Boot 백엔드 API.
-계좌 개설부터 이체까지의 전체 거래 흐름을 **레이어드 락 · 감사 로그 · 거래 한도 · 상태 머신** 위에 구현했습니다.
+뱅킹 도메인의 **동시성·정합성·멱등성** 문제를 실무 상황을 상정해 다룬 Spring Boot 백엔드 API.
+계좌 개설부터 이체까지의 거래 흐름을 **레이어드 락 · 감사 로그 · 거래 한도 · 상태 머신** 위에 구현했습니다.
 
 ---
 
@@ -18,7 +18,7 @@
 | 인증 | JWT Access Token + Refresh Token Rotation (RTR) |
 | 동시성 | **Redisson 분산 락** + DB `PESSIMISTIC_WRITE` 이중 방어, 계좌번호 정렬 락 획득 (데드락 방지) |
 | 계좌 상태 | `ACTIVE` / `DORMANT` / `FROZEN` — 도메인 상태 머신, 비정상 상태에서 거래 차단 |
-| 거래 한도 | 1회 1,000만원 / 1일 5,000만원 — 실제 시중은행 비대면 기본 한도 반영 (`application.yml` 설정) |
+| 거래 한도 | 1회 1,000만원 / 1일 5,000만원 — 시중은행 비대면 한도를 참고한 기본값 (`application.yml`에서 조정) |
 | 멱등성 | `Idempotency-Key` 헤더 기반 필터 (Redis / DB 이중 백엔드) |
 | 보안 | Rate Limiting (Bucket4j), PII 마스킹, Stateless 세션 |
 | 감사 | 모든 금융 거래·인증 이벤트를 독립 트랜잭션(`REQUIRES_NEW`)으로 AuditLog 기록 |
@@ -122,16 +122,17 @@ A→B 이체와 B→A 이체가 동시에 발생해도 락 순서가 동일하�
 ### 3. Redisson 분산 락 (다중 인스턴스 대비)
 단일 인스턴스에서는 DB 비관적 락만으로도 정합성이 유지되지만, **수평 확장 시 DB에만 의존하면 대기 큐가 DB 커넥션에 쌓여 장애 전파 위험**이 있습니다.
 - Redis(Redisson) 기반 분산 락을 **DB 락보다 앞단에 배치** → 앱 레벨에서 먼저 직렬화.
-- DB 비관적 락은 그대로 유지하여 **이중 방어(layered locking)**: 분산 락 만료/장애 시에도 DB 락이 최후의 정합성 보루.
+- DB 비관적 락은 그대로 유지하여 **이중 방어(layered locking)**: 분산 락 만료/장애 시에도 DB 락이 최후의 방어선.
 - `tryLock(waitTime=3s, leaseTime=5s)` — TTL로 클라이언트 크래시 시 자동 해제.
-- 멀티 락(이체)도 **계좌번호 사전순 고정**하여 데드락 원천 차단.
+- 멀티 락(이체)도 **계좌번호 사전순으로 고정 획득**하여 데드락 회피.
 - 상세: [`docs/distributed-lock.md`](docs/distributed-lock.md)
 
 ### 4. 멱등성 (Idempotency-Key)
-네트워크 재시도로 인한 **중복 이체 방지**를 위해 결제 업계 표준 패턴을 구현.
-- 같은 Key + 같은 요청 바디 → 캐시된 응답 반환 (`Idempotent-Replay: true` 헤더)
-- 같은 Key + 다른 요청 바디 → 409 Conflict
+네트워크 재시도로 인한 **중복 이체 방지**를 위해 `Idempotency-Key` 헤더 기반 리플레이 패턴을 구현.
+- 같은 Key로 재요청 → 저장된 응답을 재생 (`X-Idempotency-Replayed: true` 헤더)
+- 처리 중 동일 Key 도착 → `IN_PROGRESS` 감지, 즉시 409 반환
 - Redis 우선, 장애 시 DB fallback
+- **현재 범위**: 키 기반 리플레이까지. 같은 키로 바디를 다르게 보내는 오·남용 탐지는 구현 범위 밖 — 클라이언트가 재시도마다 동일 바디를 보내는 계약을 가정함
 
 ### 5. Refresh Token Rotation (RTR)
 RT 사용 시마다 새로운 RT 발급 + 기존 RT는 `used=true`.
@@ -149,7 +150,7 @@ RT 사용 시마다 새로운 RT 발급 + 기존 RT는 `used=true`.
 - 비정상 상태 거래 시도 → `AccountNotActiveException` → `409 Conflict`.
 
 ### 8. 거래 한도 정책 (Transaction Limit)
-실제 시중은행 비대면 기본 한도를 반영: **1회 1,000만원 / 1일 5,000만원**.
+시중은행 비대면 한도를 참고한 기본값: **1회 1,000만원 / 1일 5,000만원**.
 - `@ConfigurationProperties("bank.transaction.limit")` 로 주입 → 환경별 재설정 가능, 테스트는 낮은 값(1,000원 / 3,000원)으로 오버라이드하여 검증 경로 활성화.
 - 적용 범위: **출금성 거래(WITHDRAW, TRANSFER_OUT)** 만. 입금은 면제.
 - 일일 합계는 `SELECT SUM(amount) FROM transaction WHERE type IN (WITHDRAW, TRANSFER_OUT) AND created_at BETWEEN [00:00, next 00:00)` 로 산정.
@@ -170,7 +171,7 @@ k6로 소수 계좌에 150 VU를 몰아 락 경합을 유발, DB락 단독 vs Re
 | Before (DB락 단독)   |  2.76 | 31,677 | 50,277 |     0 | 651 |     0 |
 | **After (Redisson+DB)** | **49.3** | **1,819** | **3,033** | **7,265** | **0** | 4,590 |
 
-- **TPS 17.9배 향상**, 평균 지연 94% 감소, 500 에러 완전 해소
+- **TPS 17.9배 향상**, 평균 지연 94% 감소, 500 에러 0건 (테스트 조건 기준)
 - DB락 단독: 모든 요청이 DB 행락 대기열에 몰려 커넥션 풀 포화 → 타임아웃 → 500
 - Redisson 도입 후: 앱 레벨에서 3초 내 빠르게 거절(409)하고 DB에 부하를 전달하지 않음
 

@@ -99,7 +99,7 @@ String second = key1.compareTo(key2) <= 0 ? key2 : key1;
 executeWithLock(first, () -> executeWithLock(second, action));
 ```
 
-**방향이 어떻든 두 스레드가 같은 순서로 락을 요청**하므로 데드락이 원천 차단됩니다. `TransferConcurrencyTest.concurrentBidirectionalTransfer_finishesWithin5Seconds_withoutDeadlock` 에서 A↔B 양방향 이체를 동시에 돌려 검증합니다.
+**방향이 어떻든 두 스레드가 같은 순서로 락을 요청**하므로 데드락이 발생하지 않습니다. `TransferConcurrencyTest.concurrentBidirectionalTransfer_finishesWithin5Seconds_withoutDeadlock` 에서 A↔B 양방향 이체를 동시에 돌려 검증합니다.
 
 ### 4.3 타임아웃 / TTL 파라미터
 
@@ -111,7 +111,7 @@ private static final long LOCK_LEASE_SECONDS = 5L;   // 락 보유(TTL)
 | 파라미터 | 선택 근거 |
 |---|---|
 | `waitTime = 3s` | 사용자 체감 지연 상한. 초과 시 409 Conflict("동시 처리 중인 요청이 있습니다") → 클라이언트가 재시도 가능 |
-| `leaseTime = 5s` | 이체 트랜잭션의 P99 예상 시간보다 여유 있게. **클라이언트/앱 크래시 시 자동 해제 보장** |
+| `leaseTime = 5s` | 이체 트랜잭션의 P99 예상 시간보다 여유 있게. **클라이언트/앱 크래시 시 TTL로 자동 해제** |
 
 `leaseTime` 을 너무 길게 잡으면 장애 복구가 느려지고, 너무 짧으면 **트랜잭션이 락보다 오래 살아남는 위험**. 실무에서는 Watchdog(leaseTime=-1)로 자동 갱신하는 방식도 있으나, 본 프로젝트는 명시적 상한을 두어 **장애 격리** 를 우선했습니다.
 
@@ -191,8 +191,8 @@ public <T> T executeWithLock(String key, long waitSeconds, long leaseSeconds, Ca
 
 - [x] 락 범위를 **자원(계좌) 단위** 로 한정 — 전역 락 남용 없음
 - [x] 락 키 네임스페이스 (`lock:account:`) 로 다른 도메인과 충돌 방지
-- [x] TTL로 **Liveness** 보장 (무한 대기 없음)
-- [x] `isHeldByCurrentThread()` 로 **Safety** 보장 (타인의 락 해제 방지)
+- [x] TTL로 **Liveness** 확보 (무한 대기 방지)
+- [x] `isHeldByCurrentThread()` 로 **Safety** 확보 (타인의 락 해제 방지)
 - [x] 멀티락 **획득 순서 고정** — 데드락 없음
 - [x] DB 비관적 락을 **보조 방어선** 으로 유지
 - [x] 부하테스트 기반 TPS Before/After 측정 — **TPS 17.9배 향상, P95 94% 감소** ([결과](loadtest/README.md))
