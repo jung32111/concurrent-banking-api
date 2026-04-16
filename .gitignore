@@ -38,3 +38,6 @@ out/
 
 ### Environment ###
 .env
+
+### Load test raw output ###
+docs/loadtest/results/*-raw.json

@@ -1,13 +1,13 @@
-# Account Service
+# Concurrent Banking API
 
-![CI](https://github.com/jung32111/banking-transaction-system/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/jung32111/concurrent-banking-api/actions/workflows/ci.yml/badge.svg)
 ![Java](https://img.shields.io/badge/Java-21-007396?logo=openjdk&logoColor=white)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.3-6DB33F?logo=spring&logoColor=white)
 ![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1?logo=mysql&logoColor=white)
 ![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)
 
-계좌 관리 및 이체를 처리하는 Spring Boot 기반 뱅킹 백엔드 API.
-금융권 포트폴리오 목적으로 **동시성 제어 · 멱등성 · 감사 로그 · JWT 인증** 을 중점적으로 구현하였습니다.
+뱅킹 도메인에서 가장 까다로운 **동시성·정합성·멱등성** 문제를 실제 은행 서비스 수준으로 다룬 Spring Boot 백엔드 API.
+계좌 개설부터 이체까지의 전체 거래 흐름을 **레이어드 락 · 감사 로그 · 거래 한도 · 상태 머신** 위에 구현했습니다.
 
 ---
 
@@ -21,7 +21,7 @@
 | 거래 한도 | 1회 1,000만원 / 1일 5,000만원 — 실제 시중은행 비대면 기본 한도 반영 (`application.yml` 설정) |
 | 멱등성 | `Idempotency-Key` 헤더 기반 필터 (Redis / DB 이중 백엔드) |
 | 보안 | Rate Limiting (Bucket4j), PII 마스킹, Stateless 세션 |
-| 감사 | 모든 금융 거래 · 인증 이벤트 AuditLog 독립 트랜잭션 기록 (`REQUIRES_NEW`) |
+| 감사 | 모든 금융 거래·인증 이벤트를 독립 트랜잭션(`REQUIRES_NEW`)으로 AuditLog 기록 |
 | 문서 | SpringDoc OpenAPI 3 (Swagger UI) |
 
 ---
@@ -44,21 +44,23 @@
 Client ──HTTP──► [TraceIdFilter → RateLimitFilter → JwtAuthFilter → IdempotencyFilter]
                                            │
                                            ▼
-                          Controller ─► Service (@Transactional)
+                          Controller ─► Service
                                            │
                            ┌───────────────┼─────────────────┐
                            ▼               ▼                 ▼
-                     JPA Repository    Redis Cache     AuditLogService
-                           │                              (REQUIRES_NEW)
-                           ▼
-                         MySQL
+                   Redisson 분산 락   JPA Repository     AuditLogService
+                           │              │              (REQUIRES_NEW)
+                           ▼              ▼
+                       Redis           MySQL (SELECT ... FOR UPDATE)
 ```
 
 ### 패키지 구성
 ```
 com.bank.accountservice
 ├── controller      REST 엔드포인트
-├── service         비즈니스 로직 (@Transactional)
+├── service         비즈니스 로직
+├── lock            분산 락 (DistributedLockManager / Redisson 구현)
+├── policy          거래 한도 등 도메인 정책
 ├── entity          JPA 엔티티 (User, Account, Transaction, AuditLog, RefreshToken, IdempotencyKey)
 ├── repository      Spring Data JPA
 ├── security        JWT 발급 / 검증, SecurityConfig
@@ -67,7 +69,7 @@ com.bank.accountservice
 ├── exception       커스텀 예외 + GlobalExceptionHandler
 ├── dto             Request / Response DTO
 ├── domain          BaseTimeEntity (Auditing)
-├── config          Redis, Filter 설정
+├── config          Redis, Redisson, Filter 설정 + @ConfigurationProperties
 └── util            LogMaskingUtil (PII 마스킹)
 ```
 
@@ -112,12 +114,12 @@ Swagger UI: `http://localhost:8080/swagger-ui.html`
 낙관적 락(`@Version`)은 충돌 시 `OptimisticLockException` → 재시도 루프를 거치는데, 이체처럼 2개 계좌를 원자적으로 다뤄야 하는 경우 재시도가 복잡해집니다.
 따라서 DB 수준에서 행을 직렬화하는 비관적 락을 채택하여 **로직 단순성 + 정합성**을 확보했습니다.
 
-### 2. 데드락 방지 - 계좌번호 정렬
+### 2. 데드락 방지 — 계좌번호 정렬
 두 계좌를 락 걸 때 **항상 계좌번호 사전순**으로 락을 획득합니다.
 A→B 이체와 B→A 이체가 동시에 발생해도 락 순서가 동일하므로 데드락이 발생하지 않습니다.
 → `TransferConcurrencyTest` 에서 검증.
 
-### 2-1. Redisson 분산 락 (다중 인스턴스 대비)
+### 3. Redisson 분산 락 (다중 인스턴스 대비)
 단일 인스턴스에서는 DB 비관적 락만으로도 정합성이 유지되지만, **수평 확장 시 DB에만 의존하면 대기 큐가 DB 커넥션에 쌓여 장애 전파 위험**이 있습니다.
 - Redis(Redisson) 기반 분산 락을 **DB 락보다 앞단에 배치** → 앱 레벨에서 먼저 직렬화.
 - DB 비관적 락은 그대로 유지하여 **이중 방어(layered locking)**: 분산 락 만료/장애 시에도 DB 락이 최후의 정합성 보루.
@@ -125,28 +127,28 @@ A→B 이체와 B→A 이체가 동시에 발생해도 락 순서가 동일하�
 - 멀티 락(이체)도 **계좌번호 사전순 고정**하여 데드락 원천 차단.
 - 상세: [`docs/distributed-lock.md`](docs/distributed-lock.md)
 
-### 3. 멱등성 (Idempotency-Key)
+### 4. 멱등성 (Idempotency-Key)
 네트워크 재시도로 인한 **중복 이체 방지**를 위해 결제 업계 표준 패턴을 구현.
 - 같은 Key + 같은 요청 바디 → 캐시된 응답 반환 (`Idempotent-Replay: true` 헤더)
 - 같은 Key + 다른 요청 바디 → 409 Conflict
 - Redis 우선, 장애 시 DB fallback
 
-### 4. Refresh Token Rotation (RTR)
+### 5. Refresh Token Rotation (RTR)
 RT 사용 시마다 새로운 RT 발급 + 기존 RT는 `used=true`.
 이미 사용된 RT가 재요청되면 **토큰 탈취로 간주**하여 해당 사용자의 모든 RT를 삭제, 재로그인 강제.
 
-### 5. 감사 로그 독립 트랜잭션
+### 6. 감사 로그 독립 트랜잭션
 `AuditLogService.record()` 는 `@Transactional(propagation = REQUIRES_NEW)`.
-본 트랜잭션이 롤백돼도 감사 기록은 보존됩니다 (컴플라이언스 요구사항).
+본 트랜잭션이 롤백돼도 감사 기록은 보존됩니다 (규제·감사 요구사항).
 
-### 6. 계좌 상태 머신 (Account Status)
+### 7. 계좌 상태 머신 (Account Status)
 `ACTIVE` · `DORMANT` · `FROZEN` 세 상태를 도메인 모델로 관리.
 - **FROZEN** — 분실신고/법적 조치. 소유자 본인이 `POST /accounts/{no}/freeze` 로 즉시 동결 가능. 해제 전까지 모든 거래 차단.
-- **DORMANT** — 장기 미사용 휴면. 재활성화(`/activate`) 전까지 거래 불가. (자동 전환 배치는 향후 과제)
+- **DORMANT** — 장기 미사용 휴면. 재활성화(`/activate`) 전까지 거래 불가.
 - **상태 검증 위치**: 서비스가 아닌 **엔티티의 `deposit`/`withdraw` 내부**에서 `ensureTransactable()` 호출 → 모든 거래 경로(입출금·이체)가 **한 곳에서 일관되게 차단**되어 누락 방지.
 - 비정상 상태 거래 시도 → `AccountNotActiveException` → `409 Conflict`.
 
-### 7. 거래 한도 정책 (Transaction Limit)
+### 8. 거래 한도 정책 (Transaction Limit)
 실제 시중은행 비대면 기본 한도를 반영: **1회 1,000만원 / 1일 5,000만원**.
 - `@ConfigurationProperties("bank.transaction.limit")` 로 주입 → 환경별 재설정 가능, 테스트는 낮은 값(1,000원 / 3,000원)으로 오버라이드하여 검증 경로 활성화.
 - 적용 범위: **출금성 거래(WITHDRAW, TRANSFER_OUT)** 만. 입금은 면제.
@@ -154,7 +156,7 @@ RT 사용 시마다 새로운 RT 발급 + 기존 RT는 `used=true`.
 - **동시성 안전성**: 분산 락 + DB 비관적 락 안에서 합계 조회 → 금액 차감을 수행하므로, 동시 요청에서도 한도 판정이 race condition 없이 정확.
 - 초과 시 `TransactionLimitExceededException` → `422 Unprocessable Entity`, 타입(`PER_TRANSACTION` / `PER_DAY`)을 응답 메시지에 포함.
 
-### 8. PII 마스킹
+### 9. PII 마스킹
 계좌번호 `100-12345678` → `100-****5678` 로 마스킹 후 로그/감사 출력.
 
 ---
@@ -194,17 +196,17 @@ export REDIS_PORT=6379
 ### 테스트 구성
 | 파일 | 범위 |
 |---|---|
-| `AuthServiceTest` | 회원가입/로그인/RTR |
+| `AuthServiceTest` | 회원가입 / 로그인 / RTR |
 | `AccountServiceTest` | 계좌 개설, 권한 검증 |
 | `TransactionServiceTest` | 입출금, 잔액 부족 |
-| `TransferServiceTest` | 이체 성공/실패, 자기 계좌 거부 |
+| `TransferServiceTest` | 이체 성공·실패, 자기 계좌 거부, 동결·휴면 차단 |
 | `TransferConcurrencyTest` | 양방향 동시 이체 (데드락 없음) |
-| `RedissonDistributedLockManagerTest` | 분산 락 획득/실패/인터럽트, 멀티락 사전순 |
-| `AccountStatusTest` | ACTIVE/DORMANT/FROZEN 상태 전이 및 거래 차단 |
-| `TransactionLimitPolicyTest` | 1회/일일 한도 검증, 경계값, 출금성 타입 한정 |
+| `RedissonDistributedLockManagerTest` | 분산 락 획득·실패·인터럽트, 멀티락 사전순 |
+| `AccountStatusTest` | ACTIVE / DORMANT / FROZEN 상태 전이 및 거래 차단 |
+| `TransactionLimitPolicyTest` | 1회·일일 한도 검증, 경계값, 출금성 타입 한정 |
 
 ---
 
 ## 📄 License
 
-Portfolio project. Not for production use.
+MIT License
