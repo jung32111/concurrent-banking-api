@@ -27,7 +27,7 @@ public class Transaction extends BaseTimeEntity {
     private BigDecimal balanceAfterTransaction;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(nullable = false, length = 20)
     private TransactionType type;
 
     private String description;
