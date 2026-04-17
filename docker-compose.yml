@@ -1,10 +1,10 @@
 services:
   mysql:
     image: mysql:8.0
-    container_name: accountservice-mysql
+    container_name: banking-mysql
     environment:
       MYSQL_ROOT_PASSWORD: rootpw
-      MYSQL_DATABASE: accountservice
+      MYSQL_DATABASE: banking
       MYSQL_USER: bank
       MYSQL_PASSWORD: bankpw
     ports:
@@ -19,7 +19,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: accountservice-redis
+    container_name: banking-redis
     ports:
       - "6379:6379"
     healthcheck:
@@ -30,14 +30,14 @@ services:
 
   app:
     build: .
-    container_name: accountservice-app
+    container_name: banking-app
     depends_on:
       mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
     environment:
-      DB_URL: jdbc:mysql://mysql:3306/accountservice?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul
+      DB_URL: jdbc:mysql://mysql:3306/banking?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul
       DB_USERNAME: bank
       DB_PASSWORD: bankpw
       REDIS_HOST: redis

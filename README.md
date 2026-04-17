@@ -56,7 +56,7 @@ Client ──HTTP──► [TraceIdFilter → RateLimitFilter → JwtAuthFilter 
 
 ### 패키지 구성
 ```
-com.bank.accountservice
+com.bank
 ├── controller      REST 엔드포인트
 ├── service         비즈니스 로직
 ├── lock            분산 락 (DistributedLockManager / Redisson 구현)
@@ -195,7 +195,7 @@ MySQL 8, Redis, 애플리케이션이 함께 기동됩니다.
 ```bash
 # 1. MySQL / Redis 기동 필요
 # 2. 환경변수 설정 (.env 파일 또는 export)
-export DB_URL=jdbc:mysql://localhost:3306/accountservice
+export DB_URL=jdbc:mysql://localhost:3306/banking
 export DB_USERNAME=root
 export DB_PASSWORD=...
 export JWT_SECRET=... # 최소 256-bit

@@ -65,10 +65,10 @@ jacocoTestReport {
 	afterEvaluate {
 		classDirectories.setFrom(files(classDirectories.files.collect {
 			fileTree(dir: it, exclude: [
-				'com/bank/accountservice/AccountserviceApplication.class',
-				'com/bank/accountservice/dto/**',
-				'com/bank/accountservice/entity/**',
-				'com/bank/accountservice/config/**'
+				'com/bank/BankingApiApplication.class',
+				'com/bank/dto/**',
+				'com/bank/entity/**',
+				'com/bank/config/**'
 			])
 		}))
 	}

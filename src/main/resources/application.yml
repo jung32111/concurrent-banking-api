@@ -1,6 +1,6 @@
 spring:
   application:
-    name: accountservice
+    name: concurrent-banking-api
 
   datasource:
     url: ${DB_URL}
