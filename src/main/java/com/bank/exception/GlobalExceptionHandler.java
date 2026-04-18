@@ -2,6 +2,7 @@ package com.bank.exception;
 
 import com.bank.dto.ApiResponse;
 import com.bank.exception.InvalidTokenException;
+import com.bank.exception.IdempotencyHashMismatchException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -97,6 +98,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleIllegalState(IllegalStateException e) {
         log.error("[ERROR] IllegalStateException - {}", e.getMessage());
         return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.error(e.getMessage()));
+    }
+
+    @ExceptionHandler(IdempotencyHashMismatchException.class)
+    public ResponseEntity<ApiResponse<Void>> handleIdempotencyHashMismatch(IdempotencyHashMismatchException e) {
+        log.error("[ERROR] IdempotencyHashMismatchException - {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(ApiResponse.error(e.getMessage()));
     }
 
     @ExceptionHandler(Exception.class)

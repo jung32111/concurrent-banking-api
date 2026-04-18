@@ -167,21 +167,23 @@ sequenceDiagram
     participant C1 as VU #1 (최초)
     participant C2 as VU #2~20 (중복)
     participant F as IdempotencyFilter
-    participant R as Redis
+    participant DB as MySQL (idempotency_keys)
     participant S as TransferService
 
     C1->>F: POST /transfers (Key: abc-123)
-    F->>R: GET abc-123 → 없음
-    F->>R: SET abc-123 = IN_PROGRESS
+    F->>DB: INSERT (key, hash, response_body=NULL)
+    Note over F,DB: UNIQUE 선점 성공 → Fresh
     F->>S: 이체 실행
     C2->>F: POST /transfers (Key: abc-123)
-    F->>R: GET abc-123 → IN_PROGRESS
+    F->>DB: INSERT → UNIQUE 위반 → SELECT
+    Note over F,DB: response_body IS NULL → InProgress
     F-->>C2: 409 "처리 중입니다"
     S-->>F: 200 OK (이체 완료)
-    F->>R: SET abc-123 = {200, 응답 본문}
+    F->>DB: UPDATE response_body, http_status
     F-->>C1: 200 OK
     C2->>F: POST /transfers (Key: abc-123) [재시도]
-    F->>R: GET abc-123 → 캐시 응답
+    F->>DB: INSERT → UNIQUE 위반 → SELECT
+    Note over F,DB: response_body 존재 → Replay
     F-->>C2: 200 OK (X-Idempotency-Replayed: true)
 ```
 

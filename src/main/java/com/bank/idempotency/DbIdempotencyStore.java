@@ -1,73 +1,66 @@
 package com.bank.idempotency;
 
 import com.bank.entity.IdempotencyKey;
+import com.bank.exception.IdempotencyHashMismatchException;
 import com.bank.repository.IdempotencyKeyRepository;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Duration;
-import java.time.LocalDateTime;
-import java.util.Optional;
-
+@Slf4j
 @Repository
 @RequiredArgsConstructor
 public class DbIdempotencyStore implements IdempotencyStore {
 
-    private static final Duration DEFAULT_TTL = Duration.ofHours(24);
-
     private final IdempotencyKeyRepository repository;
     private final EntityManager entityManager;
-    private final ObjectMapper objectMapper;
 
+    /**
+     * UNIQUE 제약에 기대어 선점·조회를 한 번에 처리한다.
+     * 1) INSERT 시도 (response_body=NULL 상태로)
+     *    - 성공 → 최초 처리자 (Fresh)
+     * 2) UNIQUE 위반 → 이미 존재하는 레코드 조회
+     *    - 해시 다르면 422
+     *    - response_body NULL → 처리 중 → 409
+     *    - response_body 존재 → 저장된 응답 재생
+     */
     @Override
-    @Transactional(readOnly = true)
-    public Optional<String> getResponse(String key) {
-        return repository.findByIdempotencyKey(key)
-                .filter(k -> !k.isExpired(LocalDateTime.now()))
-                .map(k -> {
-                    try {
-                        return objectMapper.writeValueAsString(
-                                new StoredResponse(k.getHttpStatus(), k.getResponseBody())
-                        );
-                    } catch (Exception e) {
-                        throw new IllegalStateException("응답 직렬화 실패", e);
-                    }
-                });
+    @Transactional
+    public GetOrCreateResult getOrCreate(String key, String requestHash) {
+        try {
+            repository.saveAndFlush(IdempotencyKey.forNewRequest(key, requestHash));
+            return new GetOrCreateResult.Fresh();
+        } catch (DataIntegrityViolationException e) {
+            log.warn("[Idempotency] DataIntegrityViolation key={} message={} rootCause={}",
+                    key, e.getMessage(),
+                    e.getMostSpecificCause() != null ? e.getMostSpecificCause().getMessage() : "null");
+            entityManager.clear();
+        }
+
+        IdempotencyKey existing = repository.findByIdempotencyKey(key)
+                .orElseThrow(() -> new IllegalStateException(
+                        "UNIQUE 위반 직후 레코드가 사라짐: " + key));
+
+        if (!existing.getRequestHash().equals(requestHash)) {
+            throw new IdempotencyHashMismatchException();
+        }
+
+        if (!existing.isCompleted()) {
+            return new GetOrCreateResult.InProgress();
+        }
+
+        return new GetOrCreateResult.Replay(existing.getHttpStatus(), existing.getResponseBody());
     }
 
     @Override
     @Transactional
-    public void save(String key, String response) {
-        LocalDateTime expiredAt = LocalDateTime.now().plus(DEFAULT_TTL);
-
-        StoredResponse storedResponse;
-        try {
-            storedResponse = objectMapper.readValue(response, StoredResponse.class);
-        } catch (Exception e) {
-            throw new IllegalStateException("응답 역직렬화 실패", e);
-        }
-
-        // requestHash 필드(NOT NULL)는 응답 JSON의 해시로 채운다
-        String requestHash = IdempotencyHashUtil.hash(response);
-
-        try {
-            IdempotencyKey entity = IdempotencyKey.builder()
-                    .idempotencyKey(key)
-                    .requestHash(requestHash)
-                    .responseBody(storedResponse.responseBody())
-                    .httpStatus(storedResponse.httpStatus())
-                    .expiredAt(expiredAt)
-                    .build();
-
-            repository.save(entity);
-
-        } catch (DataIntegrityViolationException e) {
-            // 동시 요청으로 이미 저장된 경우 — 멱등성 보장, 무시
-            entityManager.clear();
-        }
+    public void saveResponse(String key, int httpStatus, String responseBody) {
+        IdempotencyKey existing = repository.findByIdempotencyKey(key)
+                .orElseThrow(() -> new IllegalStateException(
+                        "saveResponse 시점에 레코드 없음: " + key));
+        existing.fillResponse(httpStatus, responseBody);
     }
 }

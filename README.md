@@ -19,7 +19,7 @@
 | 동시성 | **Redisson 분산 락** + DB `PESSIMISTIC_WRITE` 이중 방어, 계좌번호 정렬 락 획득 (데드락 방지) |
 | 계좌 상태 | `ACTIVE` / `DORMANT` / `FROZEN` — 도메인 상태 머신, 비정상 상태에서 거래 차단 |
 | 거래 한도 | 1회 1,000만원 / 1일 5,000만원 — 시중은행 비대면 한도를 참고한 기본값 (`application.yml`에서 조정) |
-| 멱등성 | `Idempotency-Key` 헤더 기반 필터 (Redis / DB 이중 백엔드) |
+| 멱등성 | `Idempotency-Key` 헤더 기반 필터 + MySQL `UNIQUE` 제약으로 원자적 선점, 응답 재생(24h 보관·03시 스위핑) |
 | 보안 | Rate Limiting (Bucket4j), PII 마스킹, Stateless 세션 |
 | 감사 | 모든 금융 거래·인증 이벤트를 독립 트랜잭션(`REQUIRES_NEW`)으로 AuditLog 기록 |
 | 문서 | SpringDoc OpenAPI 3 (Swagger UI) |
@@ -30,7 +30,8 @@
 
 - **Language / Runtime**: Java 21, Spring Boot 3.4.3
 - **Persistence**: Spring Data JPA, MySQL 8
-- **Cache / Idempotency / Distributed Lock**: Redis, Redisson 3.37
+- **Distributed Lock**: Redis 7 + Redisson 3.37 (이체 경합용)
+- **Idempotency Store**: MySQL (`UNIQUE` 제약 기반 선점, `MEDIUMTEXT` 응답 영속화)
 - **Security**: Spring Security, JJWT 0.11.5
 - **API Docs**: SpringDoc OpenAPI 2.8.5
 - **Rate Limiting**: Bucket4j 8.10.1
@@ -42,16 +43,17 @@
 
 ```
 Client ──HTTP──► [TraceIdFilter → RateLimitFilter → JwtAuthFilter → IdempotencyFilter]
-                                           │
-                                           ▼
-                          Controller ─► Service
-                                           │
-                           ┌───────────────┼─────────────────┐
-                           ▼               ▼                 ▼
-                   Redisson 분산 락   JPA Repository     AuditLogService
-                           │              │              (REQUIRES_NEW)
-                           ▼              ▼
-                       Redis           MySQL (SELECT ... FOR UPDATE)
+                                                           │          │
+                                                           │     MySQL (UNIQUE idempotency_keys)
+                                                           ▼
+                                      Controller ─► Service
+                                                           │
+                              ┌────────────────────────────┼────────────────────────────┐
+                              ▼                            ▼                            ▼
+                      Redisson 분산 락              JPA Repository                AuditLogService
+                              │                            │                      (REQUIRES_NEW)
+                              ▼                            ▼
+                          Redis                MySQL (SELECT ... FOR UPDATE)
 ```
 
 ### 패키지 구성
@@ -65,7 +67,7 @@ com.bank
 ├── repository      Spring Data JPA
 ├── security        JWT 발급 / 검증, SecurityConfig
 ├── filter          TraceId, RateLimit 필터
-├── idempotency     Idempotency 필터 + Store (Redis / DB)
+├── idempotency     Idempotency 필터 + DbIdempotencyStore (UNIQUE 선점) + 24h 정리 스케줄러
 ├── exception       커스텀 예외 + GlobalExceptionHandler
 ├── dto             Request / Response DTO
 ├── domain          BaseTimeEntity (Auditing)
@@ -127,12 +129,34 @@ A→B 이체와 B→A 이체가 동시에 발생해도 락 순서가 동일하�
 - 멀티 락(이체)도 **계좌번호 사전순으로 고정 획득**하여 데드락 회피.
 - 상세: [`docs/distributed-lock.md`](docs/distributed-lock.md)
 
-### 4. 멱등성 (Idempotency-Key)
-네트워크 재시도로 인한 **중복 이체 방지**를 위해 `Idempotency-Key` 헤더 기반 리플레이 패턴을 구현.
-- 같은 Key로 재요청 → 저장된 응답을 재생 (`X-Idempotency-Replayed: true` 헤더)
-- 처리 중 동일 Key 도착 → `IN_PROGRESS` 감지, 즉시 409 반환
-- Redis 우선, 장애 시 DB fallback
-- **현재 범위**: 키 기반 리플레이까지. 같은 키로 바디를 다르게 보내는 오·남용 탐지는 구현 범위 밖 — 클라이언트가 재시도마다 동일 바디를 보내는 계약을 가정함
+### 4. 멱등성 (Idempotency-Key) — DB 기반 Store
+
+네트워크 재시도/클라이언트 중복 클릭으로 인한 **중복 이체 방지**를 위해 `Idempotency-Key` 헤더 기반 replay 패턴을 구현.
+
+**판정 3상태 (sealed interface `GetOrCreateResult`)**
+- **Fresh** — 최초 요청. `filterChain` 실행 → 응답 바디를 `idempotency_keys.response_body`에 저장.
+- **InProgress** — 동일 키가 선점돼 있으나 `response_body IS NULL`. **409 Conflict** 즉시 반환 → 클라이언트가 재시도.
+- **Replay** — 동일 키 + 응답 바디 존재. 저장된 `http_status` + body 그대로 반환 + `X-Idempotency-Replayed: true` 헤더.
+- 같은 Key + 다른 요청 바디(`SHA-256` 해시 불일치) → **422 Unprocessable Entity** (`IdempotencyHashMismatchException`).
+
+**원자적 선점 — MySQL UNIQUE**
+- `DbIdempotencyStore.getOrCreate()` 는 `INSERT ... VALUES(key, hash, NULL)` 을 먼저 시도한다.
+  - 성공 → Fresh.
+  - `DataIntegrityViolationException` (`UNIQUE(idempotency_key)` 위반) → 이미 누가 선점. 기존 레코드를 조회해 InProgress / Replay 판정.
+- 이체 자체가 DB 트랜잭션이므로 멱등 상태도 같은 저장소에 두는 것이 정합성 관리가 단순하다.
+- Redis TTL의 "자동 만료" 장점은 `IdempotencyCleanupScheduler`(매일 03시, 24h 이전 레코드 일괄 삭제)로 대체.
+
+**요청 바디 버퍼링**
+- 요청 바디를 두 번 읽기 위해 `CachedBodyRequestWrapper`로 스트림을 버퍼링했다.
+
+**5xx는 저장하지 않음**
+- `ContentCachingResponseWrapper`로 응답을 캐싱한 뒤, **4xx까지만 `saveResponse()` 호출**. 5xx는 일시 장애 가능성이 있어 저장하지 않는다.
+
+**AuditLog 와의 역할 분리**
+- `AuditLog`: 이벤트의 장기 감사 기록 (독립 트랜잭션 `REQUIRES_NEW`, 영구 보존).
+- `IdempotencyKey`: 재요청 시 응답 재생용 단기 저장소 (24h).
+
+→ 검증: `IdempotencyFilterTest` (Fresh/InProgress/Replay/해시 불일치/5xx 스킵 경로), k6 시나리오로 동시 요청에서 잔액이 1회만 차감됨을 검증했다.
 
 ### 5. Refresh Token Rotation (RTR)
 RT 사용 시마다 새로운 RT 발급 + 기존 RT는 `used=true`.
@@ -195,7 +219,7 @@ MySQL 8, Redis, 애플리케이션이 함께 기동됩니다.
 ```bash
 # 1. MySQL / Redis 기동 필요
 # 2. 환경변수 설정 (.env 파일 또는 export)
-export DB_URL=jdbc:mysql://localhost:3306/banking
+export DB_URL=jdbc:mysql://localhost:3306/concurrent_banking
 export DB_USERNAME=root
 export DB_PASSWORD=...
 export JWT_SECRET=... # 최소 256-bit
