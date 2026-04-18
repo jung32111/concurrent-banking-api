@@ -19,7 +19,7 @@
 | 동시성 | **Redisson 분산 락** + DB `PESSIMISTIC_WRITE` 이중 방어, 계좌번호 정렬 락 획득 (데드락 방지) |
 | 계좌 상태 | `ACTIVE` / `DORMANT` / `FROZEN` — 도메인 상태 머신, 비정상 상태에서 거래 차단 |
 | 거래 한도 | 1회 1,000만원 / 1일 5,000만원 — 시중은행 비대면 한도를 참고한 기본값 (`application.yml`에서 조정) |
-| 멱등성 | `Idempotency-Key` 헤더 기반 필터 (Redis / DB 이중 백엔드) |
+| 멱등성 | `Idempotency-Key` 헤더 기반 필터 + Redis Store (응답 재생 24h, TTL 자동 만료) |
 | 보안 | Rate Limiting (Bucket4j), PII 마스킹, Stateless 세션 |
 | 감사 | 모든 금융 거래·인증 이벤트를 독립 트랜잭션(`REQUIRES_NEW`)으로 AuditLog 기록 |
 | 문서 | SpringDoc OpenAPI 3 (Swagger UI) |
@@ -65,7 +65,7 @@ com.bank
 ├── repository      Spring Data JPA
 ├── security        JWT 발급 / 검증, SecurityConfig
 ├── filter          TraceId, RateLimit 필터
-├── idempotency     Idempotency 필터 + Store (Redis / DB)
+├── idempotency     Idempotency 필터 + RedisIdempotencyStore
 ├── exception       커스텀 예외 + GlobalExceptionHandler
 ├── dto             Request / Response DTO
 ├── domain          BaseTimeEntity (Auditing)
@@ -131,7 +131,7 @@ A→B 이체와 B→A 이체가 동시에 발생해도 락 순서가 동일하�
 네트워크 재시도로 인한 **중복 이체 방지**를 위해 `Idempotency-Key` 헤더 기반 리플레이 패턴을 구현.
 - 같은 Key로 재요청 → 저장된 응답을 재생 (`X-Idempotency-Replayed: true` 헤더)
 - 처리 중 동일 Key 도착 → `IN_PROGRESS` 감지, 즉시 409 반환
-- Redis 우선, 장애 시 DB fallback
+- Redis TTL로 24h 자동 만료 — 별도 스케줄러 없이 관리
 - **현재 범위**: 키 기반 리플레이까지. 같은 키로 바디를 다르게 보내는 오·남용 탐지는 구현 범위 밖 — 클라이언트가 재시도마다 동일 바디를 보내는 계약을 가정함
 
 ### 5. Refresh Token Rotation (RTR)
