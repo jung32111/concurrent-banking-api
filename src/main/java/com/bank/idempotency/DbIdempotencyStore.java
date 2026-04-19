@@ -1,12 +1,10 @@
 package com.bank.idempotency;
 
-import com.bank.entity.IdempotencyKey;
 import com.bank.exception.IdempotencyHashMismatchException;
+import com.bank.entity.IdempotencyKey;
 import com.bank.repository.IdempotencyKeyRepository;
-import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,11 +14,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class DbIdempotencyStore implements IdempotencyStore {
 
     private final IdempotencyKeyRepository repository;
-    private final EntityManager entityManager;
+    private final IdempotencyKeyInserter inserter;
 
     /**
      * UNIQUE 제약에 기대어 선점·조회를 한 번에 처리한다.
-     * 1) INSERT 시도 (response_body=NULL 상태로)
+     * 1) INSERT 시도 (response_body=NULL 상태로) — REQUIRES_NEW 서브 트랜잭션
      *    - 성공 → 최초 처리자 (Fresh)
      * 2) UNIQUE 위반 → 이미 존재하는 레코드 조회
      *    - 해시 다르면 422
@@ -30,14 +28,9 @@ public class DbIdempotencyStore implements IdempotencyStore {
     @Override
     @Transactional
     public GetOrCreateResult getOrCreate(String key, String requestHash) {
-        try {
-            repository.saveAndFlush(IdempotencyKey.forNewRequest(key, requestHash));
+        boolean inserted = inserter.tryInsert(key, requestHash);
+        if (inserted) {
             return new GetOrCreateResult.Fresh();
-        } catch (DataIntegrityViolationException e) {
-            log.warn("[Idempotency] DataIntegrityViolation key={} message={} rootCause={}",
-                    key, e.getMessage(),
-                    e.getMostSpecificCause() != null ? e.getMostSpecificCause().getMessage() : "null");
-            entityManager.clear();
         }
 
         IdempotencyKey existing = repository.findByIdempotencyKey(key)

@@ -146,16 +146,17 @@ pie title After (Redisson + DB락)
 BASE_URL=http://localhost:8080 k6 run docs/loadtest/04-idempotency.js
 ```
 
-## 측정 결과 (2026-04-16)
+## 측정 결과 (2026-04-19) — DB 기반 Store
 
 **조건**: 20 VU x 5회 = 총 100건 요청, 동일 `Idempotency-Key` 사용
 
 | 항목 | 값 |
 |---|---|
 | 총 요청 | 100건 |
-| 실제 이체 처리 (최초 1건) | 1건 |
-| 캐시 응답 반환 (중복 감지) | 80건 |
-| 처리 중 동시 도착 거절 (IN_PROGRESS) | 19건 |
+| 실제 이체 처리 (최초 1건, Fresh) | 1건 |
+| 재생 응답 반환 (Replay) | 54건 |
+| 처리 중 동시 도착 거절 (InProgress, 409) | 45건 |
+| 기타 에러 | **0건** |
 | 잔액 변화 | 1,000,000 → 950,000 |
 | 차감 금액 | **정확히 50,000 (1회분)** |
 | `idempotencyVerified` | **true** |
