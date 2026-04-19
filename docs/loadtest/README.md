@@ -161,35 +161,39 @@ BASE_URL=http://localhost:8080 k6 run docs/loadtest/04-idempotency.js
 | 차감 금액 | **정확히 50,000 (1회분)** |
 | `idempotencyVerified` | **true** |
 
+### 응답 분포
+
+```mermaid
+pie title 100건 요청 응답 분류
+  "Replay 200 (응답 재생)" : 54
+  "InProgress 409 (처리 중 거절)" : 45
+  "Fresh 200 (최초 처리)" : 1
+```
+
 ### 동작 흐름
 
 ```mermaid
 sequenceDiagram
     participant C1 as VU #1 (최초)
-    participant C2 as VU #2~20 (중복)
+    participant C2 as VU #2~20 (동시)
     participant F as IdempotencyFilter
     participant DB as MySQL (idempotency_keys)
     participant S as TransferService
 
     C1->>F: POST /transfers (Key: abc-123)
-    F->>DB: INSERT (key, hash, response_body=NULL)
-    Note over F,DB: UNIQUE 선점 성공 → Fresh
+    F->>DB: INSERT IGNORE (key, hash, response_body=NULL)
+    Note over F,DB: 1 row affected → Fresh
     F->>S: 이체 실행
     C2->>F: POST /transfers (Key: abc-123)
-    F->>DB: INSERT → UNIQUE 위반 → SELECT
+    F->>DB: INSERT IGNORE (key, hash, ...)
+    Note over F,DB: 0 rows affected → SELECT 조회
     Note over F,DB: response_body IS NULL → InProgress
     F-->>C2: 409 "처리 중입니다"
     S-->>F: 200 OK (이체 완료)
     F->>DB: UPDATE response_body, http_status
     F-->>C1: 200 OK
     C2->>F: POST /transfers (Key: abc-123) [재시도]
-    F->>DB: INSERT → UNIQUE 위반 → SELECT
+    F->>DB: INSERT IGNORE → 0 rows → SELECT 조회
     Note over F,DB: response_body 존재 → Replay
     F-->>C2: 200 OK (X-Idempotency-Replayed: true)
 ```
-
-### 핵심
-
-- 네트워크 재시도, 클라이언트 중복 클릭, 타임아웃 후 재전송 등 **어떤 경우에도 이체는 1번만 실행**
-- 중복 요청은 캐시된 원본 응답을 그대로 반환 → 클라이언트는 정상 응답을 받음
-- 처리 중 동시 도착 시 409로 즉시 거절 → 클라이언트가 재시도 가능
