@@ -4,7 +4,7 @@ services:
     container_name: banking-mysql
     environment:
       MYSQL_ROOT_PASSWORD: rootpw
-      MYSQL_DATABASE: banking
+      MYSQL_DATABASE: concurrent_banking
       MYSQL_USER: bank
       MYSQL_PASSWORD: bankpw
     ports:
@@ -37,12 +37,12 @@ services:
       redis:
         condition: service_healthy
     environment:
-      DB_URL: jdbc:mysql://mysql:3306/banking?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul
+      DB_URL: jdbc:mysql://mysql:3306/concurrent_banking?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul
       DB_USERNAME: bank
       DB_PASSWORD: bankpw
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-strong-256-bit-secret-for-production-use-only}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required — set it in .env or export it}
     ports:
       - "8080:8080"
 

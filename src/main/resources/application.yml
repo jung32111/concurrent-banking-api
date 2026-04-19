@@ -25,7 +25,6 @@ jwt:
   secret: ${JWT_SECRET}
   expiration: 86400000
 
-# 거래 한도 정책 — 실제 시중은행 비대면 기본 한도(1회 1,000만 / 1일 5,000만) 반영
 bank:
   transaction:
     limit:
@@ -35,6 +34,8 @@ bank:
 logging:
   level:
     org.hibernate.SQL: debug
+    org.springframework.security: DEBUG
+    com.bank: DEBUG
 
 springdoc:
   swagger-ui:

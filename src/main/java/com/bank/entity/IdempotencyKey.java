@@ -3,20 +3,19 @@ package com.bank.entity;
 import com.bank.domain.BaseTimeEntity;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
-import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-
-import java.time.LocalDateTime;
+import org.hibernate.annotations.DynamicUpdate;
 
 @Entity
 @Getter
+@DynamicUpdate
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Table(
         name = "idempotency_keys",
         indexes = {
                 @Index(name = "idx_idempotency_key", columnList = "idempotency_key"),
-                @Index(name = "idx_expired_at", columnList = "expired_at")
+                @Index(name = "idx_created_at", columnList = "created_at")
         }
 )
 public class IdempotencyKey extends BaseTimeEntity {
@@ -31,32 +30,27 @@ public class IdempotencyKey extends BaseTimeEntity {
     @Column(name = "request_hash", nullable = false, length = 64)
     private String requestHash;
 
-    @Column(name = "response_body", columnDefinition = "MEDIUMTEXT", nullable = false)
+    @Column(name = "response_body", columnDefinition = "MEDIUMTEXT")
     private String responseBody;
 
-    @Column(name = "http_status", nullable = false)
-    private int httpStatus;
+    @Column(name = "http_status")
+    private Integer httpStatus;
 
-    @Column(name = "expired_at", nullable = false)
-    private LocalDateTime expiredAt;
-
-    @Builder
-    public IdempotencyKey(
-            String idempotencyKey,
-            String requestHash,
-            String responseBody,
-            int httpStatus,
-            LocalDateTime expiredAt
-    ) {
+    private IdempotencyKey(String idempotencyKey, String requestHash) {
         this.idempotencyKey = idempotencyKey;
         this.requestHash = requestHash;
-        this.responseBody = responseBody;
-        this.httpStatus = httpStatus;
-        this.expiredAt = expiredAt;
     }
 
-    //현재 시간 바탕으로 만료여부 확인
-    public boolean isExpired(LocalDateTime now) {
-        return expiredAt.isBefore(now);
+    public static IdempotencyKey forNewRequest(String idempotencyKey, String requestHash) {
+        return new IdempotencyKey(idempotencyKey, requestHash);
+    }
+
+    public void fillResponse(int httpStatus, String responseBody) {
+        this.httpStatus = httpStatus;
+        this.responseBody = responseBody;
+    }
+
+    public boolean isCompleted() {
+        return responseBody != null;
     }
 }

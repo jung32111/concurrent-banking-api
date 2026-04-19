@@ -1,6 +1,5 @@
 package com.bank.idempotency;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -9,34 +8,32 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
-import org.springframework.web.util.ContentCachingRequestWrapper;
 import org.springframework.web.util.ContentCachingResponseWrapper;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.Optional;
-import java.util.Set;
+import java.util.List;
 
 @RequiredArgsConstructor
 public class IdempotencyFilter extends OncePerRequestFilter {
 
     private static final String IDEMPOTENCY_KEY_HEADER = "Idempotency-Key";
     private static final String REPLAYED_HEADER = "X-Idempotency-Replayed";
-    private static final String IN_PROGRESS = "IN_PROGRESS";
 
-    private static final Set<String> TARGET_PATHS = Set.of(
+    private static final List<String> TARGET_PREFIXES = List.of(
             "/transfers",
             "/transactions"
     );
-
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final IdempotencyStore idempotencyStore;
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !"POST".equalsIgnoreCase(request.getMethod())
-                || !TARGET_PATHS.contains(request.getRequestURI());
+        if (!"POST".equalsIgnoreCase(request.getMethod())) {
+            return true;
+        }
+        String uri = request.getRequestURI();
+        return TARGET_PREFIXES.stream().noneMatch(uri::startsWith);
     }
 
     @Override
@@ -49,49 +46,45 @@ public class IdempotencyFilter extends OncePerRequestFilter {
             response.sendError(HttpStatus.BAD_REQUEST.value(), "멱등성 키 헤더가 필요합니다");
             return;
         }
-        ContentCachingRequestWrapper wrappedRequest = new ContentCachingRequestWrapper(request);
+
+        CachedBodyRequestWrapper wrappedRequest = new CachedBodyRequestWrapper(request);
         ContentCachingResponseWrapper wrappedResponse = new ContentCachingResponseWrapper(response);
 
-        // 캐시 조회 — getResponse() 한 번으로 멱등성 판단
-        Optional<String> stored = idempotencyStore.getResponse(key);
-        if (stored.isPresent()) {
-            String value = stored.get();
+        String requestHash = IdempotencyHashUtil.hash(wrappedRequest.getCachedBody());
 
-            if (IN_PROGRESS.equals(value)) {
-                response.sendError(HttpStatus.CONFLICT.value(), "동일한 요청이 처리 중입니다. 잠시 후 재시도하세요.");
+        GetOrCreateResult result = idempotencyStore.getOrCreate(key, requestHash);
+
+        switch (result) {
+            case GetOrCreateResult.InProgress ignored -> {
+                response.sendError(HttpStatus.CONFLICT.value(),
+                        "동일한 요청이 처리 중입니다. 잠시 후 재시도하세요.");
                 return;
             }
-
-            // 이전에 완료된 응답 재사용
-            StoredResponse storedResponse = OBJECT_MAPPER.readValue(value, StoredResponse.class);
-            response.setStatus(storedResponse.httpStatus());
-            response.setHeader(REPLAYED_HEADER, "true");
-            response.getWriter().write(storedResponse.responseBody());
-            return;
+            case GetOrCreateResult.Replay replay -> {
+                response.setStatus(replay.httpStatus());
+                response.setHeader(REPLAYED_HEADER, "true");
+                response.getWriter().write(replay.responseBody());
+                return;
+            }
+            case GetOrCreateResult.Fresh ignored -> {
+                // fall through to processing
+            }
         }
 
-        boolean saved = false;
-        try {
-            filterChain.doFilter(wrappedRequest, wrappedResponse);
+        filterChain.doFilter(wrappedRequest, wrappedResponse);
 
-            if (wrappedResponse.getStatus() >= 200 && wrappedResponse.getStatus() < 300) {
-                String responseBody = new String(
-                        wrappedResponse.getContentAsByteArray(),
-                        StandardCharsets.UTF_8
-                );
-                String json = OBJECT_MAPPER.writeValueAsString(
-                        new StoredResponse(wrappedResponse.getStatus(), responseBody)
-                );
-                idempotencyStore.save(key, json);
-                saved = true;
-            }
-        } finally {
-            // 예외 발생 또는 비2xx 응답 시 IN_PROGRESS 키를 즉시 해제해
-            // 클라이언트가 30초 TTL 만료를 기다리지 않고 즉시 재시도할 수 있도록 한다.
-            if (!saved) {
-                idempotencyStore.delete(key);
-            }
-            wrappedResponse.copyBodyToResponse();
+        // 5xx를 제외한 모든 응답을 재생 대상으로 저장한다.
+        // 4xx(한도 초과·잔액 부족 등)도 같은 요청에는 같은 결과를 반환하는 게 멱등성 계약.
+        // 5xx는 서버 일시 장애일 수 있어 저장하지 않음 → Fresh 레코드는 response_body NULL로 남고
+        // 같은 키로 즉시 재시도 시 InProgress(409). 클라이언트는 새 Idempotency-Key로 재시도.
+        if (wrappedResponse.getStatus() < 500) {
+            String responseBody = new String(
+                    wrappedResponse.getContentAsByteArray(),
+                    StandardCharsets.UTF_8
+            );
+            idempotencyStore.saveResponse(key, wrappedResponse.getStatus(), responseBody);
         }
+
+        wrappedResponse.copyBodyToResponse();
     }
 }
