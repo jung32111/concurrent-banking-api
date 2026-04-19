@@ -157,6 +157,7 @@ A→B 이체와 B→A 이체가 동시에 발생해도 락 순서가 동일하�
 - `IdempotencyKey`: 재요청 시 응답 재생용 단기 저장소 (24h).
 
 → 검증: `IdempotencyFilterTest` (Fresh/InProgress/Replay/해시 불일치/5xx 스킵 경로), k6 시나리오로 동시 요청에서 잔액이 1회만 차감됨을 검증했다.
+→ 부하테스트 상세: [`docs/loadtest/README.md — Idempotency Test`](docs/loadtest/README.md#idempotency-test--멱등성-검증-04-idempotencyjs)
 
 ### 5. Refresh Token Rotation (RTR)
 RT 사용 시마다 새로운 RT 발급 + 기존 RT는 `used=true`.
