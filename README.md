@@ -156,6 +156,13 @@ A→B 이체와 B→A 이체가 동시에 발생해도 락 순서가 동일하�
 - `AuditLog`: 이벤트의 장기 감사 기록 (독립 트랜잭션 `REQUIRES_NEW`, 영구 보존).
 - `IdempotencyKey`: 재요청 시 응답 재생용 단기 저장소 (24h).
 
+**Redis vs DB Store 트레이드오프**
+
+두 구현체 모두 동일한 `IdempotencyStore` 인터페이스를 구현한다. 현재 `@Primary`는 DB Store.
+
+- **RedisIdempotencyStore** — `SET NX`로 원자적 선점, TTL 자동 만료로 별도 스케줄러 불필요. 단, 이체 트랜잭션(DB)과 저장소가 달라 정합성 경계가 분리되고, Redis 재시작 시 선점 데이터 유실 가능.
+- **DbIdempotencyStore (채택)** — `INSERT IGNORE`로 UNIQUE 선점, 이체와 동일한 DB에 저장해 트랜잭션 정합성 관리가 단순하다. TTL 만료는 매일 03시 스케줄러로 대체.
+
 → 검증: `IdempotencyFilterTest` (Fresh/InProgress/Replay/해시 불일치/5xx 스킵 경로), k6 시나리오로 동시 요청에서 잔액이 1회만 차감됨을 검증했다.
 → 부하테스트 상세: [`docs/loadtest/README.md — Idempotency Test`](docs/loadtest/README.md#idempotency-test--멱등성-검증-04-idempotencyjs)
 

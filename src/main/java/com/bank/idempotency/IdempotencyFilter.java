@@ -82,7 +82,7 @@ public class IdempotencyFilter extends OncePerRequestFilter {
                     wrappedResponse.getContentAsByteArray(),
                     StandardCharsets.UTF_8
             );
-            idempotencyStore.saveResponse(key, wrappedResponse.getStatus(), responseBody);
+            idempotencyStore.saveResponse(key, requestHash, wrappedResponse.getStatus(), responseBody);
         }
 
         wrappedResponse.copyBodyToResponse();

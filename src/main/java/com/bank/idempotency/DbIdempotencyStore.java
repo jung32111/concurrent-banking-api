@@ -5,9 +5,11 @@ import com.bank.entity.IdempotencyKey;
 import com.bank.repository.IdempotencyKeyRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+@Primary
 @Slf4j
 @Repository
 @RequiredArgsConstructor
@@ -50,7 +52,7 @@ public class DbIdempotencyStore implements IdempotencyStore {
 
     @Override
     @Transactional
-    public void saveResponse(String key, int httpStatus, String responseBody) {
+    public void saveResponse(String key, String requestHash, int httpStatus, String responseBody) {
         IdempotencyKey existing = repository.findByIdempotencyKey(key)
                 .orElseThrow(() -> new IllegalStateException(
                         "saveResponse 시점에 레코드 없음: " + key));
