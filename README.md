@@ -134,36 +134,18 @@ A→B 이체와 B→A 이체가 동시에 발생해도 락 순서가 동일하�
 네트워크 재시도/클라이언트 중복 클릭으로 인한 **중복 이체 방지**를 위해 `Idempotency-Key` 헤더 기반 replay 패턴을 구현.
 
 **판정 3상태 (sealed interface `GetOrCreateResult`)**
-- **Fresh** — 최초 요청. `filterChain` 실행 → 응답 바디를 `idempotency_keys.response_body`에 저장.
-- **InProgress** — 동일 키가 선점돼 있으나 `response_body IS NULL`. **409 Conflict** 즉시 반환 → 클라이언트가 재시도.
-- **Replay** — 동일 키 + 응답 바디 존재. 저장된 `http_status` + body 그대로 반환 + `X-Idempotency-Replayed: true` 헤더.
-- 같은 Key + 다른 요청 바디(`SHA-256` 해시 불일치) → **422 Unprocessable Entity** (`IdempotencyHashMismatchException`).
-
-**원자적 선점 — MySQL UNIQUE**
-- `DbIdempotencyStore.getOrCreate()` 는 `INSERT ... VALUES(key, hash, NULL)` 을 먼저 시도한다.
-  - 성공 → Fresh.
-  - `DataIntegrityViolationException` (`UNIQUE(idempotency_key)` 위반) → 이미 누가 선점. 기존 레코드를 조회해 InProgress / Replay 판정.
-- 이체 자체가 DB 트랜잭션이므로 멱등 상태도 같은 저장소에 두는 것이 정합성 관리가 단순하다.
-- Redis TTL의 "자동 만료" 장점은 `IdempotencyCleanupScheduler`(매일 03시, 24h 이전 레코드 일괄 삭제)로 대체.
-
-**요청 바디 버퍼링**
-- 요청 바디를 두 번 읽기 위해 `CachedBodyRequestWrapper`로 스트림을 버퍼링했다.
-
-**5xx는 저장하지 않음**
-- `ContentCachingResponseWrapper`로 응답을 캐싱한 뒤, **4xx까지만 `saveResponse()` 호출**. 5xx는 일시 장애 가능성이 있어 저장하지 않는다.
-
-**AuditLog 와의 역할 분리**
-- `AuditLog`: 이벤트의 장기 감사 기록 (독립 트랜잭션 `REQUIRES_NEW`, 영구 보존).
-- `IdempotencyKey`: 재요청 시 응답 재생용 단기 저장소 (24h).
+- **Fresh** — 최초 요청. 이체 실행 후 응답을 `idempotency_keys`에 저장.
+- **InProgress** — 동일 키 선점 중, 응답 미완료. **409** 즉시 반환.
+- **Replay** — 완료된 응답 존재. 저장된 응답 재생 + `X-Idempotency-Replayed: true`.
+- 같은 키 + 다른 요청 바디(SHA-256 해시 불일치) → **422**.
 
 **Redis vs DB Store 트레이드오프**
 
 두 구현체 모두 동일한 `IdempotencyStore` 인터페이스를 구현한다. 현재 `@Primary`는 DB Store.
 
-- **RedisIdempotencyStore** — `SET NX`로 원자적 선점, TTL 자동 만료로 별도 스케줄러 불필요. 단, 이체 트랜잭션(DB)과 저장소가 달라 정합성 경계가 분리되고, Redis 재시작 시 선점 데이터 유실 가능.
-- **DbIdempotencyStore (채택)** — `INSERT IGNORE`로 UNIQUE 선점, 이체와 동일한 DB에 저장해 트랜잭션 정합성 관리가 단순하다. TTL 만료는 매일 03시 스케줄러로 대체.
+- **RedisIdempotencyStore** — `SET NX`로 원자적 선점, TTL 자동 만료. 단, 이체 트랜잭션(DB)과 저장소가 달라 정합성 경계가 분리되고 Redis 재시작 시 선점 데이터 유실 가능.
+- **DbIdempotencyStore (채택)** — `INSERT IGNORE`로 UNIQUE 선점, 이체와 동일한 DB에 저장해 정합성 관리가 단순하다. TTL 만료는 매일 03시 스케줄러로 대체.
 
-→ 검증: `IdempotencyFilterTest` (Fresh/InProgress/Replay/해시 불일치/5xx 스킵 경로), k6 시나리오로 동시 요청에서 잔액이 1회만 차감됨을 검증했다.
 → 부하테스트 상세: [`docs/loadtest/README.md — Idempotency Test`](docs/loadtest/README.md#idempotency-test--멱등성-검증-04-idempotencyjs)
 
 ### 5. Refresh Token Rotation (RTR)
