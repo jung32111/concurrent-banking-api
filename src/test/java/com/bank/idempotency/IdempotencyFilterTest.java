@@ -112,7 +112,7 @@ class IdempotencyFilterTest {
         filter.doFilter(request, response, filterChain);
 
         verify(filterChain).doFilter(any(), any());
-        verify(idempotencyStore).saveResponse(eq("key-1"), eq(200), eq("{\"success\":true}"));
+        verify(idempotencyStore).saveResponse(eq("key-1"), anyString(), eq(200), eq("{\"success\":true}"));
     }
 
     @Test
@@ -129,7 +129,7 @@ class IdempotencyFilterTest {
 
         filter.doFilter(request, response, filterChain);
 
-        verify(idempotencyStore).saveResponse(eq("key-1"), eq(422), anyString());
+        verify(idempotencyStore).saveResponse(eq("key-1"), anyString(), eq(422), anyString());
     }
 
     @Test
@@ -146,7 +146,7 @@ class IdempotencyFilterTest {
 
         filter.doFilter(request, response, filterChain);
 
-        verify(idempotencyStore, never()).saveResponse(anyString(), anyInt(), anyString());
+        verify(idempotencyStore, never()).saveResponse(anyString(), anyString(), anyInt(), anyString());
     }
 
     @Test
