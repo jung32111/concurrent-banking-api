@@ -1,0 +1,18 @@
+{
+  "label": "limit-before-1",
+  "scenario": "hikari-tuning-short",
+  "account_pool": 4,
+  "http_reqs": 3658,
+  "tps": 35.91861301436474,
+  "latency_ms": {
+    "avg": 2499.97606189694,
+    "p95": 3154.4874,
+    "p99": "n/a",
+    "max": 6183.2041
+  },
+  "success": 1386,
+  "conflict409": 2262,
+  "server_500": "n/a",
+  "other_error": "n/a",
+  "conflict_rate": 0.6200657894736842
+}

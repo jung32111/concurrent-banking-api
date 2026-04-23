@@ -197,6 +197,44 @@ k6로 소수 계좌에 150 VU를 몰아 락 경합을 유발, DB락 단독 vs Re
 
 ---
 
+## 🔬 병목 분석과 성능 개선
+
+k6로 병목 후보를 하나씩 측정해 좁혀갔다. 과정·EXPLAIN 원문·run별 수치는 [`docs/loadtest/README.md`](docs/loadtest/README.md#성능-튜닝-기록).
+
+### HikariCP — 주병목 아님(검증 후 기각)
+k6 측정 결과 500 에러와 pool starvation 징후가 없었고, idle 시 `threads_connected=11` 수준으로 커넥션 풀 포화도 확인되지 않았다. pool 확대 실험은 오히려 DB 행락 경합만 키워 TPS가 약 7% 하락해 원복했다.
+
+### 거래 한도 SUM 쿼리 — 복합 인덱스 1개 추가
+이체마다 호출되는 일일 한도 집계를 `EXPLAIN`으로 분석 후 `(account_id, type, created_at)` 인덱스 추가. 스캔 rows **1,195 → 553**, `Using where` 제거.
+
+| 지표 | Before | After | Δ |
+|---|---:|---:|---:|
+| TPS | 36.93 | **40.76** | **+10.4%** |
+| avg latency | 2,435 ms | **2,212 ms** | **-9.2%** |
+| p95 latency | 3,143 ms | 3,119 ms | -0.8% |
+| 성공 건수 | 1,507 | **2,002** | **+33%** |
+
+```mermaid
+xychart-beta
+  title "TPS (2회 평균)"
+  x-axis ["Before", "After"]
+  y-axis "TPS" 0 --> 50
+  bar [36.93, 40.76]
+```
+
+```mermaid
+xychart-beta
+  title "성공 건수 (2회 평균)"
+  x-axis ["Before", "After"]
+  y-axis "count" 0 --> 2500
+  bar [1507, 2002]
+```
+
+p95가 거의 변하지 않은 이유는 tail latency를 Redisson 락 대기 상한(3s)이 여전히 지배하기 때문이다.
+반면 SUM 쿼리가 빨라지면서 성공 요청의 락 보유 시간이 짧아졌고, 뒤따르는 요청의 락 획득 확률이 높아져 성공 건수 증가로 이어졌다.
+
+---
+
 ## 🚀 실행 방법
 
 ### Docker Compose (권장)

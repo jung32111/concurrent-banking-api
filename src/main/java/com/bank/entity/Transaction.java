@@ -7,6 +7,17 @@ import java.math.BigDecimal;
 
 
 @Entity
+@Table(
+    name = "transaction",
+    indexes = {
+        // TransactionLimitPolicy의 일일 한도 SUM 쿼리용 복합 인덱스.
+        // WHERE account_id = ? AND type IN (WITHDRAW, TRANSFER_OUT)
+        //   AND created_at >= ? AND created_at < ?
+        // EXPLAIN: rows 1195 → 553 (Using where 제거, Using index condition).
+        @Index(name = "idx_tx_acc_type_createdat",
+               columnList = "account_id, type, created_at")
+    }
+)
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Transaction extends BaseTimeEntity {

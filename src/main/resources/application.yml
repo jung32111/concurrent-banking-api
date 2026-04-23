@@ -7,6 +7,17 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      # 앞단 Redisson 락이 대다수 요청을 빠르게 거절해 DB에 닿는 요청이 적다.
+      # pool=30으로 실험했더니 오히려 동시 DB 트랜잭션이 늘어 MySQL 행락 경합이 커지고
+      # TPS가 약 7% 하락했다(docs/loadtest/README.md 실험 1). 기본값과 동일한 10 유지.
+      maximum-pool-size: 10
+      minimum-idle: 10
+      connection-timeout: 3000
+      idle-timeout: 600000
+      max-lifetime: 1740000
+      leak-detection-threshold: 5000
+      pool-name: HikariCP-Banking
 
   jpa:
     hibernate:

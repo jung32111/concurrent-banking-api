@@ -197,3 +197,167 @@ sequenceDiagram
     Note over F,DB: response_body 존재 → Replay
     F-->>C2: 200 OK (X-Idempotency-Replayed: true)
 ```
+
+---
+
+# 성능 튜닝 기록
+
+*측정일: 2026-04-23.* 메인 README의 **"병목 분석과 성능 개선"** 섹션에서 요약한 실험의 상세 기록이다. 원시 수치, EXPLAIN 원문, 인덱스 후보 비교, 런별 결과를 보존한다.
+
+## 측정 조건
+
+- 시나리오: [`05-hikari-tuning.js`](05-hikari-tuning.js) — `02-transfer-contention.js`를 짧게 축소(ramping 10→80→150 VU, 총 ~2분)해 반복 측정에 쓰는 스크립트.
+- 계좌 풀: 4개, 시드 잔액 1천만 원
+- 환경: 로컬 단일 인스턴스, Dockerized MySQL 8 / Redis 7
+- 반복: 구성마다 **2회** 측정 후 평균을 대표값
+- 결과 파일 prefix: `results/<RUN_LABEL>-summary.json`
+
+실행 예:
+```bash
+RUN_LABEL=limit-after-1 BASE_URL=http://localhost:8080 \
+  k6 run --out json=results/limit-after-1-raw.json docs/loadtest/05-hikari-tuning.js
+```
+
+---
+
+## 실험 1 — HikariCP 커넥션 풀 (결론: 주병목 아님)
+
+### 가설
+peak 150 VU에서 `maximumPoolSize=10`(Spring Boot 기본값)이 부족해 `connectionTimeout`/500이 발생할 것이다.
+
+### baseline 측정 (pool=10, 설정 없음)
+
+| Run | TPS | avg(ms) | p95(ms) | 성공 | 409 | 500 | conflict% |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| before-1 | 35.22 | 2552 | 3179 | 1267 | 2303 | 0 | 64.5% |
+| before-2 | 35.08 | 2587 | 3161 | 1189 | 2344 | 0 | 66.3% |
+
+**관찰**
+- `500` 0건, Hikari `connectionTimeout`/`ConnectionIsNotAvailable` 징후 없음.
+- idle 상태에서 `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME='Threads_connected';` → **11**. Hikari의 기본 `maximumPoolSize=10` + 모니터링 1. 풀 포화 없음.
+- p95 3.16~3.18s는 Redisson `LOCK_WAIT_SECONDS=3`에 수렴 — **성공 요청 latency의 상한은 DB가 아니라 앱락 대기 시간이 정한다**.
+
+### 튜닝 실험 (application.yml 적용)
+
+```yaml
+spring.datasource.hikari:
+  maximum-pool-size: 30          # 10 → 30
+  minimum-idle: 10
+  connection-timeout: 3000       # 기본 30s → 3s
+  idle-timeout: 600000
+  max-lifetime: 1740000          # MySQL wait_timeout 하회
+  leak-detection-threshold: 5000
+  pool-name: HikariCP-Banking
+```
+
+각 값의 근거:
+- `maximum-pool-size=30` — 150 VU 경합 피크에서 여유. MySQL `max_connections=151` 대비 안전한 상한.
+- `connection-timeout=3000` — 이체 타임버짓(락 대기 3s + 트랜잭션) 밖에서 커넥션을 30초 기다리는 건 장애 전파만 키움 → fast-fail.
+- `leak-detection-threshold=5000` — 정상 이체는 커넥션 1초 이내 반납. 5초 초과 시 경고로 코드 누수 조기 감지.
+
+### after 측정 (pool=30)
+
+| Run | TPS | avg(ms) | p95(ms) | 성공 | 409 | 500 | conflict% |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| after-1 | 33.10 | 2717 | 3355 | 1032 | 2338 | 0 | 69.4% |
+| after-2 | 32.07 | 2821 | 3431 |  886 | 2364 | 0 | 72.7% |
+
+### 결론
+
+| 지표 | before (pool=10) | after (pool=30) | Δ |
+|---|---:|---:|---:|
+| TPS | 35.15 | 32.59 | **-7.3%** |
+| avg latency | 2570 ms | 2769 ms | **+7.7%** |
+| p95 latency | 3170 ms | 3393 ms | +7.0% |
+| 500 | 0 | 0 | 동일 |
+
+**역효과**. 앞단 Redisson이 대다수 요청을 3초 내 409로 거절해 DB에 닿는 요청이 적고, pool을 확대하자 동시 DB 트랜잭션 수가 늘어 MySQL 행락 경합만 증가. **HikariCP는 이 워크로드에서 주병목이 아니다**.
+
+**반영 결정**
+- `maximum-pool-size` 확대는 이득 없음 → 다음 실험부터는 이 값을 고정한 채 다른 후보 측정. 관측성/안정성 설정(`connection-timeout=3s`, `leak-detection-threshold=5s`, `max-lifetime=29m`)은 값의 근거가 있어 `application.yml`에 유지.
+- 원시 run JSON: `results/hikari-before-{1,2}-summary.json`, `results/hikari-after-{1,2}-summary.json`
+
+---
+
+## 실험 2 — 거래 한도 SUM 쿼리 (결론: 개선 있음)
+
+### 대상
+
+`TransferService.doTransfer()`가 락 획득 후 매번 호출하는 `TransactionLimitPolicy.validate()` 내부의 일일 집계 쿼리.
+
+```sql
+SELECT COALESCE(SUM(amount), 0) FROM transaction
+WHERE account_id = ?
+  AND type IN ('WITHDRAW', 'TRANSFER_OUT')
+  AND created_at >= ? AND created_at < ?;
+```
+
+**write path 쿼리 비용 검토 관점**에서: 이 쿼리는 모든 이체 **성공** 경로에서 실행되며, 실행이 느릴수록 성공 요청이 락을 오래 잡아 뒤따르는 요청의 락 획득률을 떨어뜨린다.
+
+### EXPLAIN before (인덱스 = FK `account_id`만)
+
+계좌당 rows가 많은 `account_id=28` 기준:
+```
+type=ref  key=FK6g20fcr3bhr6bihgy24rq1r1b  rows=1195  filtered=5.55%  Extra=Using where
+```
+account_id로는 인덱스 접근하지만 **`type`/`created_at` 필터링은 레코드 접근 후 서버에서 수행**(`Using where`). `filtered 5.55%`가 스캔 낭비를 시사.
+
+### 인덱스 후보 비교
+
+둘 다 만들어 `USE INDEX`로 강제 비교:
+
+| 후보 | type | rows | filtered | Extra |
+|---|---|---:|---:|---|
+| (A) `(account_id, created_at)` | range | 1195 | 50% | `Using index condition; Using where` |
+| **(B) `(account_id, type, created_at)`** | **range** | **553** | **100%** | `Using index condition` |
+| no hint (옵티마이저 선택) | range | 553 | 100% | **→ B 채택** |
+
+- (A)는 ICP로 `type`을 push-down해도 `Using where`가 남아 서버 필터링 잔존.
+- (B)는 인덱스 레벨에서 `type IN` 2값을 multi-seek로 분기해 인덱스 밖 필터링 없음(`filtered=100%`). 스캔 rows가 약 55% 감소(1195→553).
+- **선정: (B)**. 이번 작업의 핵심 목표가 SUM 쿼리 비용 개선이므로 더 직접적인 후보를 택함. 옵티마이저도 자연스레 (B) 선택.
+
+### 적용
+
+```sql
+CREATE INDEX idx_tx_acc_type_createdat ON transaction (account_id, type, created_at);
+```
+코드에도 `Transaction` 엔티티 `@Table(indexes=...)` 선언으로 남김.
+
+### EXPLAIN after
+```
+type=range  key=idx_tx_acc_type_createdat  key_len=18  rows=553  filtered=100.00  Extra=Using index condition
+```
+`Using where` 제거, filtered 100%.
+
+### k6 before/after (Hikari 설정 고정, 인덱스만 변경)
+
+| Run | TPS | avg(ms) | p95(ms) | 성공 | 409 | 500 | conflict% |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| limit-before-1 (no idx) | 35.92 | 2500 | 3154 | 1386 | 2262 | 0 | 62.0% |
+| limit-before-2 (no idx) | 37.95 | 2370 | 3131 | 1628 | 2200 | 0 | 57.5% |
+| **limit-after-1** (idx B) | **39.68** | **2278** | 3127 | **1818** | 2174 | 0 | 54.5% |
+| **limit-after-2** (idx B) | **41.84** | **2146** | 3110 | **2185** | 2026 | 0 | 48.1% |
+
+### 대표값 (2회 평균)
+
+| 지표 | before | after | Δ |
+|---|---:|---:|---:|
+| TPS | 36.93 | 40.76 | **+10.4%** |
+| avg latency | 2435 ms | 2212 ms | **-9.2%** |
+| p95 latency | 3143 ms | 3119 ms | -0.8% |
+| 성공 건수 | 1507 | 2002 | **+33%** |
+| 409 비율 | 59.8% | 51.3% | -8.5%p |
+
+### 해석
+
+- **TPS/avg/성공 건수 개선** — 인덱스 변경이 유일한 단일 변수이고 4개 런 모두 일관된 방향(before < after).
+- **p95 거의 무변화** — Redisson `LOCK_WAIT_SECONDS=3`이 tail latency의 상한을 정하므로 SUM 쿼리를 빠르게 해도 "락 대기 끝에 거절되는 요청"의 체감 지연은 줄지 않음.
+- **성공 건수 +33%의 메커니즘** — SUM이 빨라져 성공 요청이 락을 더 짧게 잡고 나가고, 뒤따르는 요청의 락 획득 확률이 오르며 `conflict%`가 59.8%→51.3%로 감소. **write path 쿼리 비용 최적화가 락 경합 완화로 간접 전파**되는 전형적 패턴.
+- **원시 run JSON**: `results/limit-before-{1,2}-summary.json`, `results/limit-after-{1,2}-summary.json`
+
+### 한계
+
+- 2회 반복만으로는 JIT warmup · InnoDB buffer pool warming 등의 런타임 노이즈를 완전히 배제하기 어렵다. 변화의 **방향**은 명확하지만 폭(±2 TPS)은 더 많은 런으로 좁혀야 한다.
+- `transaction` 테이블 행 수가 약 1만 수준이라 스캔 절감 효과의 절대값은 크지 않다. 데이터 규모가 커질수록 인덱스의 효과가 더 분명해질 가능성이 있다.
+- 테스트는 로컬 단일 인스턴스. 다중 인스턴스/네트워크 지연 환경에서는 다른 지점(분산 락 RTT, Redis 경합)이 병목으로 부상할 수 있다.
+- 정합성 민감 경로(이체·잔액·한도)에는 stale read 위험 때문에 캐시를 적용하지 않았다.
