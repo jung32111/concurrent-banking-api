@@ -27,9 +27,9 @@ public class TransactionController {
     @Operation(summary = "입금 / 출금", description = "Idempotency-Key 헤더 필수. 출금은 거래 한도 적용")
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "거래 성공"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "유효성 검증 실패 / Idempotency-Key 누락"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "유효성 검증 실패 / Idempotency-Key 누락 / 잔액 부족"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "동결/휴면 계좌"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "422", description = "잔액 부족 또는 거래 한도 초과")
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "422", description = "거래 한도 초과")
     })
     @PostMapping
     public ResponseEntity<ApiResponse<TransactionResponse>> createTransaction(

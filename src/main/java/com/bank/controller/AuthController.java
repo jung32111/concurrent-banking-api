@@ -55,8 +55,7 @@ public class AuthController {
     @Operation(summary = "토큰 갱신", description = "Refresh Token Rotation — 사용된 RT는 즉시 폐기")
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "갱신 성공"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "유효하지 않은 Refresh Token"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "이미 사용된 RT — 탈취 의심, 전체 RT 삭제됨")
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "유효하지 않거나 이미 사용된 RT (탈취 의심 시 전체 RT 삭제)")
     })
     @PostMapping("/refresh")
     public ResponseEntity<ApiResponse<TokenResponse>> refresh(@Valid @RequestBody TokenRequest request) {
