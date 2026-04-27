@@ -1,4 +1,4 @@
-# Concurrent Safe Banking API
+# Concurrent-Safe Banking API
 
 ![CI](https://github.com/jung32111/concurrent-banking-api/actions/workflows/ci.yml/badge.svg)
 ![Java](https://img.shields.io/badge/Java-21-007396?logo=openjdk&logoColor=white)
