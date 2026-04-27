@@ -16,6 +16,7 @@ import com.bank.repository.UserRepository;
 import com.bank.security.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,13 +29,14 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class AuthService {
 
-    private static final int REFRESH_TOKEN_VALIDITY_DAYS = 7;
-
     private final UserRepository userRepository;
     private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final AuditLogService auditLogService;
+
+    @Value("${jwt.refresh-token-expiration-days:7}")
+    private int refreshTokenExpirationDays;
 
     @Transactional
     public void signup(SignupRequest request) {
@@ -115,7 +117,7 @@ public class AuthService {
         RefreshToken refreshToken = RefreshToken.builder()
                 .token(tokenValue)
                 .userId(userId)
-                .expiresAt(LocalDateTime.now().plusDays(REFRESH_TOKEN_VALIDITY_DAYS))
+                .expiresAt(LocalDateTime.now().plusDays(refreshTokenExpirationDays))
                 .build();
         refreshTokenRepository.save(refreshToken);
         return tokenValue;

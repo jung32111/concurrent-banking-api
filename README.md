@@ -15,7 +15,7 @@
 
 | 영역 | 구현 |
 |---|---|
-| 인증 | JWT Access Token + Refresh Token Rotation (RTR) |
+| 인증 | JWT Access Token (15분) + Refresh Token (7일, RTR) |
 | 동시성 | **Redisson 분산 락** + DB `PESSIMISTIC_WRITE` 이중 방어, 계좌번호 정렬 락 획득 (데드락 방지) |
 | 계좌 상태 | `ACTIVE` / `DORMANT` / `FROZEN` — 도메인 상태 머신, 비정상 상태에서 거래 차단 |
 | 거래 한도 | 1회 1,000만원 / 1일 5,000만원 — 시중은행 비대면 한도를 참고한 기본값 (`application.yml`에서 조정) |
@@ -148,9 +148,15 @@ A→B 이체와 B→A 이체가 동시에 발생해도 락 순서가 동일하�
 
 → 부하테스트 상세: [`docs/loadtest/README.md — Idempotency Test`](docs/loadtest/README.md#idempotency-test--멱등성-검증-04-idempotencyjs)
 
-### 5. Refresh Token Rotation (RTR)
+### 5. Refresh Token Rotation (RTR) + 토큰 수명 정책
 RT 사용 시마다 새로운 RT 발급 + 기존 RT는 `used=true`.
 이미 사용된 RT가 재요청되면 **토큰 탈취로 간주**하여 해당 사용자의 모든 RT를 삭제, 재로그인 강제.
+
+**토큰 수명** — `application.yml` 에서 조정 가능:
+- **Access Token: 15분** (`jwt.access-token-expiration-ms`) — 짧게 유지해 탈취 시 노출 시간 최소화.
+- **Refresh Token: 7일** (`jwt.refresh-token-expiration-days`) — RTR 으로 매 사용 시 회전.
+
+> AT 를 길게(예: 24h) 잡으면 RTR 의 의미가 사실상 사라진다. 일반 금융권 권장 범위(AT 5~15분 / RT 1~14일) 안에서 **AT 짧게 + RT 회전** 조합을 채택.
 
 ### 6. 감사 로그 독립 트랜잭션
 `AuditLogService.record()` 는 `@Transactional(propagation = REQUIRES_NEW)`.

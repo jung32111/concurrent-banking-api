@@ -19,15 +19,15 @@ public class JwtTokenProvider {
     @Value("${jwt.secret}")
     private String secretKey;
 
-    // Access Token: 15분 (900_000 ms)
-    @Value("${jwt.expiration:900000}")
-    private long expiration;
+    // Access Token 만료 시간(ms). 기본값 15분.
+    @Value("${jwt.access-token-expiration-ms:900000}")
+    private long accessTokenExpirationMs;
 
     public String generateToken(Long userId, String email) {
         return Jwts.builder()
                 .setClaims(Map.of("userId", userId, "email", email))
                 .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + expiration))
+                .setExpiration(new Date(System.currentTimeMillis() + accessTokenExpirationMs))
                 .signWith(getSigningKey(), SignatureAlgorithm.HS256)
                 .compact();
     }

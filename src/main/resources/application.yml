@@ -44,7 +44,10 @@ spring:
 
 jwt:
   secret: ${JWT_SECRET}
-  expiration: 86400000
+  # Access Token: 15분. 짧게 유지하고 Refresh Token Rotation 으로 갱신.
+  access-token-expiration-ms: 900000
+  # Refresh Token: 7일. 사용 시마다 회전(RTR), 재사용 감지 시 전체 폐기.
+  refresh-token-expiration-days: 7
 
 bank:
   transaction:
