@@ -156,8 +156,6 @@ RT 사용 시마다 새로운 RT 발급 + 기존 RT는 `used=true`.
 - **Access Token: 15분** (`jwt.access-token-expiration-ms`) — 짧게 유지해 탈취 시 노출 시간 최소화.
 - **Refresh Token: 7일** (`jwt.refresh-token-expiration-days`) — RTR 으로 매 사용 시 회전.
 
-> AT 를 길게(예: 24h) 잡으면 RTR 의 의미가 사실상 사라진다. 일반 금융권 권장 범위(AT 5~15분 / RT 1~14일) 안에서 **AT 짧게 + RT 회전** 조합을 채택.
-
 ### 6. 감사 로그 독립 트랜잭션
 `AuditLogService.record()` 는 `@Transactional(propagation = REQUIRES_NEW)`.
 본 트랜잭션이 롤백돼도 감사 기록은 보존됩니다 (규제·감사 요구사항).
