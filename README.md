@@ -29,7 +29,7 @@
 ## 🛠 기술 스택
 
 - **Language / Runtime**: Java 21, Spring Boot 3.4.3
-- **Persistence**: Spring Data JPA, MySQL 8
+- **Persistence**: Spring Data JPA, MySQL 8 (스키마는 Flyway 마이그레이션, `ddl-auto=validate`)
 - **Distributed Lock**: Redis 7 + Redisson 3.37 (이체 경합용)
 - **Idempotency Store**: MySQL (`UNIQUE` 제약 기반 선점, `MEDIUMTEXT` 응답 영속화)
 - **Security**: Spring Security, JJWT 0.11.5
@@ -257,6 +257,11 @@ export REDIS_PORT=6379
 
 ./gradlew bootRun
 ```
+
+### 스키마 마이그레이션 (Flyway)
+- 스키마는 `src/main/resources/db/migration/V*__*.sql` 의 Flyway 마이그레이션이 관리한다 (`ddl-auto=validate`).
+- 신규 환경(빈 스키마)에서는 V1 → V2 가 순차 적용된다.
+- **기존 ddl-auto 시절의 로컬 DB 가 이미 있는 경우** `baseline-on-migrate=true` 로 V1 을 baseline 으로 마킹하고 V2 부터 적용한다. 만약 Hibernate validate 가 컬럼 타입 차이로 실패하면 `concurrent_banking` 스키마를 drop & recreate 후 재기동하면 된다.
 
 ---
 

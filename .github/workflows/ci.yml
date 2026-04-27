@@ -48,12 +48,15 @@ jobs:
 
       - name: Run tests
         env:
-          DB_URL: jdbc:h2:mem:testdb
+          DB_URL: jdbc:h2:mem:testdb;MODE=MySQL
           DB_USERNAME: sa
           DB_PASSWORD: ""
           JWT_SECRET: ci-test-secret-key-for-github-actions-only-256bit-minimum-length
           REDIS_HOST: localhost
           REDIS_PORT: 6379
+          # CI 도 H2 인메모리. Flyway(MySQL 전용 문법) 는 비활성화하고 Hibernate 가 스키마 생성.
+          SPRING_FLYWAY_ENABLED: "false"
+          SPRING_JPA_HIBERNATE_DDL_AUTO: create-drop
         run: ./gradlew test jacocoTestReport --no-daemon
 
       - name: Upload test results
