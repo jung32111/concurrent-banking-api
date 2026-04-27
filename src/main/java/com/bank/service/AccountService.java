@@ -27,32 +27,37 @@ import java.util.concurrent.ThreadLocalRandom;
 @RequiredArgsConstructor
 public class AccountService {
 
+    private static final int MAX_ACCOUNT_NUMBER_RETRY = 10;
+
     private final AccountRepository accountRepository;
     private final UserRepository userRepository;
     private final AuditLogService auditLogService;
+    private final AccountInserter accountInserter;
 
-    // 랜덤 계좌번호로 계좌생성
-    @Transactional
+    /**
+     * 랜덤 계좌번호 생성 + UNIQUE 충돌 시 재시도.
+     *
+     * <p>의도적으로 메서드 자체에는 {@code @Transactional} 을 붙이지 않는다.
+     * INSERT 시도마다 새 트랜잭션이 열려야 충돌 후 재시도가 가능하기 때문이다.
+     * 실제 INSERT 는 {@link AccountInserter#tryInsert}({@code REQUIRES_NEW}) 가 담당한다.
+     */
     public AccountResponse createAccount(AccountCreateRequest request, Long userId) {
         log.info("[SERVICE] AccountService.createAccount() - 계좌 생성 시작");
         User user = userRepository.findById(userId)
                 .orElseThrow(UserNotFoundException::new);
 
-        int retryCount = 0;
-        while (retryCount < 10) {
+        for (int attempt = 0; attempt < MAX_ACCOUNT_NUMBER_RETRY; attempt++) {
+            Account account = Account.builder()
+                    .ownerName(request.getOwnerName())
+                    .accountNumber(generateAccountNumber())
+                    .user(user)
+                    .build();
             try {
-                String accountNumber = generateAccountNumber();
-
-                Account account = Account.builder()
-                        .ownerName(request.getOwnerName())
-                        .accountNumber(accountNumber)
-                        .user(user)
-                        .build();
-                accountRepository.save(account);
-                auditLogService.record(userId, AuditAction.ACCOUNT_CREATE, account.getAccountNumber(), null);
-                return AccountResponse.from(account);
+                Account saved = accountInserter.tryInsert(account);
+                auditLogService.record(userId, AuditAction.ACCOUNT_CREATE, saved.getAccountNumber(), null);
+                return AccountResponse.from(saved);
             } catch (DataIntegrityViolationException e) {
-                retryCount++;
+                log.warn("[SERVICE] 계좌번호 충돌 - 재시도 {}/{}", attempt + 1, MAX_ACCOUNT_NUMBER_RETRY);
             }
         }
 
