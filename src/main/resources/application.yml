@@ -23,10 +23,11 @@ spring:
     hibernate:
       # 운영 안전: 스키마는 Flyway 가 관리하고 ORM 은 검증만 한다.
       ddl-auto: validate
-    show-sql: true
+    # 운영 디폴트는 SQL 로그 비노출 (PII/성능). 로컬 개발은 application-local.yml 에서 활성화.
+    show-sql: false
     properties:
       hibernate:
-        format_sql: true
+        format_sql: false
 
   flyway:
     enabled: true
@@ -57,9 +58,11 @@ bank:
 
 logging:
   level:
-    org.hibernate.SQL: debug
-    org.springframework.security: DEBUG
-    com.bank: DEBUG
+    # 운영 디폴트: WARN/INFO. 디버그 레벨은 application-local.yml 에서 활성화.
+    root: INFO
+    org.hibernate.SQL: WARN
+    org.springframework.security: WARN
+    com.bank: INFO
 
 springdoc:
   swagger-ui:

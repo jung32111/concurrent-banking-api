@@ -108,7 +108,9 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleException(Exception e) {
-        log.error("[ERROR] Exception - {}", e.getMessage());
+        // 예상치 못한 예외는 운영에서 원인 파악이 가능해야 하므로 stacktrace 동반.
+        // 응답에는 내부 메시지를 노출하지 않는다.
+        log.error("[ERROR] Unhandled exception", e);
         return ResponseEntity.internalServerError().body(ApiResponse.error("서버 내부 오류가 발생했습니다."));
     }
 }

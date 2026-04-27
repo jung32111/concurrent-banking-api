@@ -261,6 +261,10 @@ export JWT_SECRET=... # 최소 256-bit
 export REDIS_HOST=localhost
 export REDIS_PORT=6379
 
+# 디버그 로그 + SQL 출력이 필요하면 local 프로필로 기동
+SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
+
+# 기본(프로필 미지정) 기동은 운영 안전 디폴트 — show-sql=false, 로그 INFO/WARN
 ./gradlew bootRun
 ```
 
