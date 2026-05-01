@@ -42,17 +42,16 @@
 ## 🏗 아키텍처
 
 ```mermaid
-flowchart TD
+flowchart LR
     Client(["Client"])
 
     subgraph chain["Filter Chain"]
-        direction LR
         TF["TraceIdFilter"] --> RF["RateLimitFilter"] --> JF["JwtAuthFilter"] --> IF["IdempotencyFilter"]
     end
 
     Client -->|HTTP| chain
-    IF <-->|"INSERT IGNORE / SELECT"| idb[("MySQL · idempotency_keys")]
-    IF -->|"Fresh 요청"| ctrl["Controller"]
+    IF <-->|"INSERT IGNORE / SELECT"| idb[("MySQL\nidempotency_keys")]
+    IF -->|"Fresh"| ctrl["Controller"]
 
     ctrl --> svc["Service"]
 
@@ -61,7 +60,7 @@ flowchart TD
     lock -->|"락 획득"| repo["JPA Repository"]
     repo <-->|"SELECT … FOR UPDATE"| db[("MySQL")]
 
-    svc --> audit["AuditLogService\n(REQUIRES_NEW)"]
+    svc --> audit["AuditLogService\nREQUIRES_NEW"]
     audit --> db
 ```
 
