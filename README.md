@@ -174,6 +174,7 @@ RT 사용 시마다 새로운 RT 발급 + 기존 RT는 `used=true`.
 
 ```mermaid
 stateDiagram-v2
+    direction LR
     [*] --> ACTIVE : 계좌 개설
     ACTIVE --> DORMANT : 장기 미사용
     DORMANT --> ACTIVE : /activate
