@@ -41,19 +41,28 @@
 
 ## 🏗 아키텍처
 
-```
-Client ──HTTP──► [TraceIdFilter → RateLimitFilter → JwtAuthFilter → IdempotencyFilter]
-                                                           │          │
-                                                           │     MySQL (UNIQUE idempotency_keys)
-                                                           ▼
-                                      Controller ─► Service
-                                                           │
-                              ┌────────────────────────────┼────────────────────────────┐
-                              ▼                            ▼                            ▼
-                      Redisson 분산 락              JPA Repository                AuditLogService
-                              │                            │                      (REQUIRES_NEW)
-                              ▼                            ▼
-                          Redis                MySQL (SELECT ... FOR UPDATE)
+```mermaid
+flowchart TD
+    Client(["Client"])
+
+    subgraph chain["Filter Chain"]
+        direction LR
+        TF["TraceIdFilter"] --> RF["RateLimitFilter"] --> JF["JwtAuthFilter"] --> IF["IdempotencyFilter"]
+    end
+
+    Client -->|HTTP| chain
+    IF <-->|"INSERT IGNORE / SELECT"| idb[("MySQL · idempotency_keys")]
+    IF -->|"Fresh 요청"| ctrl["Controller"]
+
+    ctrl --> svc["Service"]
+
+    svc --> lock["Redisson 분산 락\ntryLock(3s / TTL 5s)"]
+    lock <--> redis[("Redis")]
+    lock -->|"락 획득"| repo["JPA Repository"]
+    repo <-->|"SELECT … FOR UPDATE"| db[("MySQL")]
+
+    svc --> audit["AuditLogService\n(REQUIRES_NEW)"]
+    audit --> db
 ```
 
 ### 패키지 구성
