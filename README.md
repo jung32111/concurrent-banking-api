@@ -42,6 +42,7 @@
 ## 🏗 아키텍처
 
 ```mermaid
+%%{init: {"flowchart": {"nodeSpacing": 60, "rankSpacing": 80}}}%%
 flowchart LR
     Client(["Client"])
 
