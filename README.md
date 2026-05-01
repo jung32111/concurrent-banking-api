@@ -6,7 +6,7 @@
 ![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1?logo=mysql&logoColor=white)
 ![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)
 
-뱅킹 도메인의 **동시성·정합성·멱등성** 문제를 실무 상황을 상정해 다룬 Spring Boot 백엔드 API.
+뱅킹 도메인의 **동시성·정합성·멱등성** 문제를 실무 수준의 정합성 요구사항을 구현한 Spring Boot 백엔드 API.
 계좌 개설부터 이체까지의 거래 흐름을 **레이어드 락 · 감사 로그 · 거래 한도 · 상태 머신** 위에 구현했습니다.
 
 ---
@@ -20,7 +20,7 @@
 | 계좌 상태 | `ACTIVE` / `DORMANT` / `FROZEN` — 도메인 상태 머신, 비정상 상태에서 거래 차단 |
 | 거래 한도 | 1회 1,000만원 / 1일 5,000만원 — 시중은행 비대면 한도를 참고한 기본값 (`application.yml`에서 조정) |
 | 멱등성 | `Idempotency-Key` 헤더 기반 필터 + MySQL `UNIQUE` 제약으로 원자적 선점, 응답 재생(24h 보관·03시 스위핑) |
-| 보안 | Rate Limiting (Bucket4j), PII 마스킹, Stateless 세션 |
+| 보안 | Rate Limiting (Bucket4j), PII 마스킹 (계좌번호 `100-****5678`), Stateless 세션 |
 | 감사 | 모든 금융 거래·인증 이벤트를 독립 트랜잭션(`REQUIRES_NEW`)으로 AuditLog 기록 |
 | 문서 | SpringDoc OpenAPI 3 (Swagger UI) |
 
@@ -159,6 +159,7 @@ RT 사용 시마다 새로운 RT 발급 + 기존 RT는 `used=true`.
 ### 6. 감사 로그 독립 트랜잭션
 `AuditLogService.record()` 는 `@Transactional(propagation = REQUIRES_NEW)`.
 본 트랜잭션이 롤백돼도 감사 기록은 보존됩니다 (규제·감사 요구사항).
+로그 출력 시 계좌번호는 `LogMaskingUtil`로 PII 마스킹(`100-12345678` → `100-****5678`)합니다.
 
 ### 7. 계좌 상태 머신 (Account Status)
 `ACTIVE` · `DORMANT` · `FROZEN` 세 상태를 도메인 모델로 관리.
@@ -174,9 +175,6 @@ RT 사용 시마다 새로운 RT 발급 + 기존 RT는 `used=true`.
 - 일일 합계는 `SELECT SUM(amount) FROM transaction WHERE type IN (WITHDRAW, TRANSFER_OUT) AND created_at BETWEEN [00:00, next 00:00)` 로 산정.
 - **동시성 안전성**: 분산 락 + DB 비관적 락 안에서 합계 조회 → 금액 차감을 수행하므로, 동시 요청에서도 한도 판정이 race condition 없이 정확.
 - 초과 시 `TransactionLimitExceededException` → `422 Unprocessable Entity`, 타입(`PER_TRANSACTION` / `PER_DAY`)을 응답 메시지에 포함.
-
-### 9. PII 마스킹
-계좌번호 `100-12345678` → `100-****5678` 로 마스킹 후 로그/감사 출력.
 
 ---
 
@@ -242,17 +240,30 @@ xychart-beta
 
 ## 🚀 실행 방법
 
+### Prerequisites
+
+- Java 21+
+- Docker & Docker Compose (권장 방법 사용 시)
+- MySQL 8, Redis 7 (로컬 실행 시)
+
 ### Docker Compose (권장)
+
 ```bash
+# 1. .env 파일 생성 (JWT_SECRET 필수)
+cp .env.example .env
+# .env 를 열어 JWT_SECRET 값 입력 (최소 32자 랜덤 문자열)
+# 생성 예시: openssl rand -base64 48
+
+# 2. 기동
 docker-compose up --build
 ```
-MySQL 8, Redis, 애플리케이션이 함께 기동됩니다.
+MySQL 8, Redis, 애플리케이션이 함께 기동됩니다. DB URL·계정은 `docker-compose.yml`에 하드코딩되어 있으며 `JWT_SECRET` 만 외부 주입이 필요합니다.
 
 ### 로컬 실행
 ```bash
 # 1. MySQL / Redis 기동 필요
 # 2. 환경변수 설정 (.env 파일 또는 export)
-export DB_URL=jdbc:mysql://localhost:3306/banking
+export DB_URL=jdbc:mysql://localhost:3306/concurrent_banking
 export DB_USERNAME=bank
 export DB_PASSWORD=...
 export JWT_SECRET=... # 최소 256-bit

@@ -55,7 +55,9 @@ public class AuditLogService {
                 }
                 return request.getRemoteAddr();
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            log.warn("[AUDIT] IP 획득 실패 — UNKNOWN으로 기록", e);
+        }
         return "UNKNOWN";
     }
 }

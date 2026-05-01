@@ -16,9 +16,17 @@ public class TransactionLimitProperties {
     private BigDecimal perTransaction = new BigDecimal("10000000");
     private BigDecimal perDay = new BigDecimal("50000000");
 
-    public BigDecimal getPerTransaction() { return perTransaction; }
-    public void setPerTransaction(BigDecimal perTransaction) { this.perTransaction = perTransaction; }
+    public BigDecimal getPerTransaction() {
+        return perTransaction;
+    }
+    public void setPerTransaction(BigDecimal perTransaction) {
+        this.perTransaction = perTransaction;
+    }
 
-    public BigDecimal getPerDay() { return perDay; }
-    public void setPerDay(BigDecimal perDay) { this.perDay = perDay; }
+    public BigDecimal getPerDay() {
+        return perDay;
+    }
+    public void setPerDay(BigDecimal perDay) {
+        this.perDay = perDay;
+    }
 }
