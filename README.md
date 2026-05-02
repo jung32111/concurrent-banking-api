@@ -1,7 +1,7 @@
 # Concurrent Banking API
 
 ![CI](https://github.com/jung32111/concurrent-banking-api/actions/workflows/ci.yml/badge.svg)
-![Coverage](https://img.shields.io/badge/coverage-70%25-green?logo=jacoco&logoColor=white)
+![Coverage](https://img.shields.io/badge/coverage-79%25-green?logo=jacoco&logoColor=white)
 ![Java](https://img.shields.io/badge/Java-21-007396?logo=openjdk&logoColor=white)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.3-6DB33F?logo=spring&logoColor=white)
 ![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1?logo=mysql&logoColor=white)
