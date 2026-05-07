@@ -316,12 +316,24 @@ SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
 ### 테스트 구성
 | 파일 | 범위 |
 |---|---|
+| **컨트롤러 슬라이스 (`@WebMvcTest`)** | |
+| `AuthControllerTest` | 회원가입·로그인·로그아웃 HTTP 상태코드, Bean Validation (이메일·비밀번호 형식), 중복 이메일 409, RT 재사용 401 |
+| `AccountControllerTest` | 인증 없음 401, 계좌 개설·조회·잔액·동결·해제·활성화 엔드포인트, 타인 계좌 403·미존재 404 |
+| `TransactionControllerTest` | 입금 성공 201, 잔액 부족·필드 누락·음수 금액 400, 거래 내역 페이징 |
+| `TransferControllerTest` | 이체 성공·필드 누락·0원 400, 동결 계좌·분산 락 실패 409, 한도 초과 422 |
+| **서비스** | |
 | `AuthServiceTest` | 회원가입 / 로그인 / RTR |
 | `AccountServiceTest` | 계좌 개설, 권한 검증 |
 | `TransactionServiceTest` | 입출금, 잔액 부족 |
 | `TransferServiceTest` | 이체 성공·실패, 자기 계좌 거부, 동결·휴면 차단 |
 | `TransferConcurrencyTest` | 양방향 동시 이체 (데드락 없음) |
-| `RedissonDistributedLockManagerTest` | 분산 락 획득·실패·인터럽트, 멀티락 사전순 |
+| **도메인·정책** | |
 | `AccountStatusTest` | ACTIVE / DORMANT / FROZEN 상태 전이 및 거래 차단 |
 | `TransactionLimitPolicyTest` | 1회·일일 한도 검증, 경계값, 출금성 타입 한정 |
+| **인프라·보안** | |
+| `RedissonDistributedLockManagerTest` | 분산 락 획득·실패·인터럽트, 멀티락 사전순 |
+| `JwtTokenProviderTest` | 토큰 생성·검증·userId 추출, 만료·변조·빈 문자열·다른 시크릿 거부 |
+| `RateLimitFilterTest` | 한도 이하 통과, 6번째 요청 429, X-Forwarded-For IP 분리, IP별 독립 버킷 |
+| `IdempotencyFilterTest` | 헤더 없음 400, GET·비대상 경로 스킵, Fresh·Replay·InProgress 3상태, 5xx 미저장 |
+| `DbIdempotencyStoreTest` | Fresh·InProgress·Replay 판정, 해시 불일치 예외, saveResponse 응답 영속화 |
 
