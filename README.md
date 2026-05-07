@@ -174,16 +174,6 @@ RT 사용 시마다 새로운 RT 발급 + 기존 RT는 `used=true`.
 ### 7. 계좌 상태 머신 (Account Status)
 `ACTIVE` · `DORMANT` · `FROZEN` 세 상태를 도메인 모델로 관리.
 
-```mermaid
-stateDiagram-v2
-    direction LR
-    [*] --> ACTIVE : 계좌 개설
-    ACTIVE --> DORMANT : 장기 미사용
-    DORMANT --> ACTIVE : /activate
-    ACTIVE --> FROZEN : /freeze
-    FROZEN --> ACTIVE : /unfreeze
-```
-
 - **FROZEN** — 분실신고/법적 조치. 소유자 본인이 `POST /accounts/{no}/freeze` 로 즉시 동결 가능. 해제 전까지 모든 거래 차단.
 - **DORMANT** — 장기 미사용 휴면. 재활성화(`/activate`) 전까지 거래 불가.
 - **상태 검증 위치**: 서비스가 아닌 **엔티티의 `deposit`/`withdraw` 내부**에서 `ensureTransactable()` 호출 → 모든 거래 경로(입출금·이체)가 **한 곳에서 일관되게 차단**되어 누락 방지.
