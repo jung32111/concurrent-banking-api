@@ -106,8 +106,8 @@ com.bank
 | GET | `/accounts` | 내 계좌 목록 |
 | GET | `/accounts/{accountNumber}` | 계좌 조회 |
 | GET | `/accounts/{accountNumber}/balance` | 잔액 조회 |
-| POST | `/accounts/{accountNumber}/freeze` | 계좌 동결 (분실신고 등) |
-| POST | `/accounts/{accountNumber}/unfreeze` | 동결 해제 |
+| POST | `/accounts/{accountNumber}/freeze` | 계좌 동결 — ADMIN 전용 |
+| POST | `/accounts/{accountNumber}/unfreeze` | 동결 해제 — ADMIN 전용 |
 | POST | `/accounts/{accountNumber}/activate` | 휴면 계좌 활성화 |
 
 ### Transaction / Transfer
@@ -173,13 +173,37 @@ RT 사용 시마다 새로운 RT 발급 + 기존 RT는 `used=true`.
 본 트랜잭션이 롤백돼도 감사 기록은 보존됩니다 (규제·감사 요구사항).
 로그 출력 시 계좌번호는 `LogMaskingUtil`로 PII 마스킹(`100-12345678` → `100-****5678`)합니다.
 
+**기록 이벤트 (`AuditAction`)**
+
+| 이벤트 | 설명 |
+|---|---|
+| `SIGNUP` | 회원가입 |
+| `LOGIN` | 로그인 (AT + RT 발급) |
+| `LOGOUT` | 로그아웃 (RT 전체 삭제) |
+| `ACCOUNT_CREATE` | 계좌 개설 |
+| `ACCOUNT_FREEZE` | 계좌 동결 (ADMIN) |
+| `ACCOUNT_UNFREEZE` | 동결 해제 (ADMIN) |
+| `ACCOUNT_ACTIVATE` | 휴면 계좌 재활성화 |
+| `DEPOSIT` | 입금 |
+| `WITHDRAW` | 출금 |
+| `TRANSFER` | 계좌 이체 |
+
 ### 7. 계좌 상태 머신 (Account Status)
 `ACTIVE` · `DORMANT` · `FROZEN` 세 상태를 도메인 모델로 관리.
 
-- **FROZEN** — 분실신고/법적 조치. 소유자 본인이 `POST /accounts/{no}/freeze` 로 즉시 동결 가능. 해제 전까지 모든 거래 차단.
+- **FROZEN** — 분실신고. ADMIN이 `POST /accounts/{no}/freeze` 로 동결, `POST /accounts/{no}/unfreeze` 로 해제. USER 역할로는 접근 불가(403). 해제 전까지 모든 거래 차단.
 - **DORMANT** — 장기 미사용 휴면. 재활성화(`/activate`) 전까지 거래 불가.
 - **상태 검증 위치**: 서비스가 아닌 **엔티티의 `deposit`/`withdraw` 내부**에서 `ensureTransactable()` 호출 → 모든 거래 경로(입출금·이체)가 **한 곳에서 일관되게 차단**되어 누락 방지.
 - 비정상 상태 거래 시도 → `AccountNotActiveException` → `409 Conflict`.
+
+**상태 전이 규칙**
+
+| 전이 | 트리거 | 제약 |
+|---|---|---|
+| ACTIVE → FROZEN | `freeze()` | 이미 FROZEN이면 무시 |
+| FROZEN → ACTIVE | `unfreeze()` | FROZEN 상태에서만 가능 |
+| ACTIVE → DORMANT | `markDormant()` | **FROZEN 상태에서는 불가** |
+| DORMANT → ACTIVE | `activate()` | DORMANT 상태에서만 가능 |
 
 ### 8. 거래 한도 정책 (Transaction Limit)
 시중은행 비대면 한도를 참고한 기본값: **1회 1,000만원 / 1일 5,000만원**.

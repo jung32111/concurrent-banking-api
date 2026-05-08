@@ -3,6 +3,8 @@ package com.bank.entity;
 import com.bank.domain.BaseTimeEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -31,10 +33,15 @@ public class User extends BaseTimeEntity {
     @Column(nullable = false, length = 50)
     private String name;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private UserRole role;
+
     @Builder
     public User(String email, String password, String name) {
         this.email = email;
         this.password = password;
         this.name = name;
+        this.role = UserRole.USER;
     }
 }

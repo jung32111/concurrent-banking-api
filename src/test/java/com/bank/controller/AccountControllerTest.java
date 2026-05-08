@@ -17,6 +17,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -51,7 +52,9 @@ class AccountControllerTest {
     private static final Long USER_ID = 1L;
     private static final String ACCOUNT_NO = "100-12345678";
     private static final UsernamePasswordAuthenticationToken AUTH =
-            new UsernamePasswordAuthenticationToken(USER_ID, null, List.of());
+            new UsernamePasswordAuthenticationToken(USER_ID, null, List.of(new SimpleGrantedAuthority("ROLE_USER")));
+    private static final UsernamePasswordAuthenticationToken ADMIN_AUTH =
+            new UsernamePasswordAuthenticationToken(USER_ID, null, List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
 
     @Autowired MockMvc mockMvc;
     @MockitoBean AccountService accountService;
@@ -145,29 +148,47 @@ class AccountControllerTest {
     }
 
     @Test
-    @DisplayName("계좌 동결 - 200 반환 및 FROZEN 상태 확인")
-    void freeze_withAuth_returns200() throws Exception {
+    @DisplayName("계좌 동결 - ADMIN 권한이면 200 및 FROZEN 상태 확인")
+    void freeze_withAdminAuth_returns200() throws Exception {
         given(accountService.freeze(eq(ACCOUNT_NO), eq(USER_ID)))
                 .willReturn(stubAccount(ACCOUNT_NO, AccountStatus.FROZEN));
 
         mockMvc.perform(post("/accounts/{no}/freeze", ACCOUNT_NO)
                         .with(csrf())
-                        .with(authentication(AUTH)))
+                        .with(authentication(ADMIN_AUTH)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("FROZEN"));
     }
 
     @Test
-    @DisplayName("계좌 동결 해제 - 200 반환 및 ACTIVE 상태 확인")
-    void unfreeze_withAuth_returns200() throws Exception {
+    @DisplayName("계좌 동결 - USER 권한이면 403")
+    void freeze_withUserAuth_returns403() throws Exception {
+        mockMvc.perform(post("/accounts/{no}/freeze", ACCOUNT_NO)
+                        .with(csrf())
+                        .with(authentication(AUTH)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("계좌 동결 해제 - ADMIN 권한이면 200 및 ACTIVE 상태 확인")
+    void unfreeze_withAdminAuth_returns200() throws Exception {
         given(accountService.unfreeze(eq(ACCOUNT_NO), eq(USER_ID)))
                 .willReturn(stubAccount(ACCOUNT_NO, AccountStatus.ACTIVE));
 
         mockMvc.perform(post("/accounts/{no}/unfreeze", ACCOUNT_NO)
                         .with(csrf())
-                        .with(authentication(AUTH)))
+                        .with(authentication(ADMIN_AUTH)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("ACTIVE"));
+    }
+
+    @Test
+    @DisplayName("계좌 동결 해제 - USER 권한이면 403")
+    void unfreeze_withUserAuth_returns403() throws Exception {
+        mockMvc.perform(post("/accounts/{no}/unfreeze", ACCOUNT_NO)
+                        .with(csrf())
+                        .with(authentication(AUTH)))
+                .andExpect(status().isForbidden());
     }
 
     @Test

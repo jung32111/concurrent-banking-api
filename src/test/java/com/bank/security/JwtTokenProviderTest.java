@@ -1,5 +1,6 @@
 package com.bank.security;
 
+import com.bank.entity.UserRole;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -22,14 +23,14 @@ class JwtTokenProviderTest {
     @Test
     @DisplayName("토큰 생성 후 validateToken 은 true 반환")
     void generateToken_thenValidate_returnsTrue() {
-        String token = provider.generateToken(1L, "user@bank.com");
+        String token = provider.generateToken(1L, "user@bank.com", UserRole.USER);
         assertThat(provider.validateToken(token)).isTrue();
     }
 
     @Test
     @DisplayName("토큰에서 userId 정확히 추출")
     void generateToken_thenGetUserId_returnsCorrectId() {
-        String token = provider.generateToken(42L, "user@bank.com");
+        String token = provider.generateToken(42L, "user@bank.com", UserRole.USER);
         assertThat(provider.getUserId(token)).isEqualTo(42L);
     }
 
@@ -37,14 +38,14 @@ class JwtTokenProviderTest {
     @DisplayName("만료된 토큰은 validateToken false 반환")
     void expiredToken_validateToken_returnsFalse() {
         ReflectionTestUtils.setField(provider, "accessTokenExpirationMs", -1000L);
-        String expiredToken = provider.generateToken(1L, "user@bank.com");
+        String expiredToken = provider.generateToken(1L, "user@bank.com", UserRole.USER);
         assertThat(provider.validateToken(expiredToken)).isFalse();
     }
 
     @Test
     @DisplayName("변조된 토큰은 validateToken false 반환")
     void tamperedToken_validateToken_returnsFalse() {
-        String token = provider.generateToken(1L, "user@bank.com");
+        String token = provider.generateToken(1L, "user@bank.com", UserRole.USER);
         String tampered = token + "tampered";
         assertThat(provider.validateToken(tampered)).isFalse();
     }
@@ -63,7 +64,7 @@ class JwtTokenProviderTest {
                 "completely-different-secret-key-for-testing-1234xx");
         ReflectionTestUtils.setField(other, "accessTokenExpirationMs", 86_400_000L);
 
-        String otherToken = other.generateToken(1L, "user@bank.com");
+        String otherToken = other.generateToken(1L, "user@bank.com", UserRole.USER);
         assertThat(provider.validateToken(otherToken)).isFalse();
     }
 }

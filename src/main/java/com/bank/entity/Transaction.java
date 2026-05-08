@@ -27,7 +27,6 @@ public class Transaction extends BaseTimeEntity {
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-
     @JoinColumn(name = "account_id", nullable = false)
     private Account account;
 

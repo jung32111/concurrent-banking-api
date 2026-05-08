@@ -1,5 +1,6 @@
 package com.bank.security;
 
+import com.bank.entity.UserRole;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
@@ -23,9 +24,9 @@ public class JwtTokenProvider {
     @Value("${jwt.access-token-expiration-ms:900000}")
     private long accessTokenExpirationMs;
 
-    public String generateToken(Long userId, String email) {
+    public String generateToken(Long userId, String email, UserRole role) {
         return Jwts.builder()
-                .setClaims(Map.of("userId", userId, "email", email))
+                .setClaims(Map.of("userId", userId, "email", email, "role", role.name()))
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + accessTokenExpirationMs))
                 .signWith(getSigningKey(), SignatureAlgorithm.HS256)
@@ -41,6 +42,10 @@ public class JwtTokenProvider {
             return value;
         }
         return Long.parseLong(String.valueOf(userId));
+    }
+
+    public UserRole getRole(String token) {
+        return UserRole.valueOf((String) getClaims(token).get("role"));
     }
 
     public boolean validateToken(String token) {

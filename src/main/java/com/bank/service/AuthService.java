@@ -65,7 +65,7 @@ public class AuthService {
             throw new InvalidCredentialsException();
         }
 
-        String accessToken = jwtTokenProvider.generateToken(user.getId(), user.getEmail());
+        String accessToken = jwtTokenProvider.generateToken(user.getId(), user.getEmail(), user.getRole());
         String refreshToken = issueRefreshToken(user.getId());
         auditLogService.record(user.getId(), AuditAction.LOGIN, null, null);
         return new TokenResponse(accessToken, refreshToken);
@@ -100,7 +100,7 @@ public class AuthService {
         // 기존 RT를 사용됨으로 표시 (RTR)
         refreshToken.markAsUsed();
 
-        String accessToken = jwtTokenProvider.generateToken(user.getId(), user.getEmail());
+        String accessToken = jwtTokenProvider.generateToken(user.getId(), user.getEmail(), user.getRole());
         String newRefreshToken = issueRefreshToken(userId);
         return new TokenResponse(accessToken, newRefreshToken);
     }

@@ -92,25 +92,23 @@ public class AccountService {
         return account.getBalance();
     }
 
-    /** 계좌 동결 (분실신고/보안 이유로 소유자가 직접 차단). */
+    /** 계좌 동결 — ADMIN 전용. SecurityConfig에서 역할 검증 후 진입. */
     @Transactional
-    public AccountResponse freeze(String accountNumber, Long userId) {
+    public AccountResponse freeze(String accountNumber, Long adminId) {
         log.info("[SERVICE] 계좌 동결 요청 - accountNumber: {}", LogMaskingUtil.maskAccountNumber(accountNumber));
         Account account = findAccount(accountNumber);
-        validateOwner(account, userId);
         account.freeze();
-        auditLogService.record(userId, AuditAction.ACCOUNT_FREEZE, accountNumber, null);
+        auditLogService.record(adminId, AuditAction.ACCOUNT_FREEZE, accountNumber, null);
         return AccountResponse.from(account);
     }
 
-    /** 동결 해제. */
+    /** 동결 해제 — ADMIN 전용. SecurityConfig에서 역할 검증 후 진입. */
     @Transactional
-    public AccountResponse unfreeze(String accountNumber, Long userId) {
+    public AccountResponse unfreeze(String accountNumber, Long adminId) {
         log.info("[SERVICE] 계좌 동결 해제 요청 - accountNumber: {}", LogMaskingUtil.maskAccountNumber(accountNumber));
         Account account = findAccount(accountNumber);
-        validateOwner(account, userId);
         account.unfreeze();
-        auditLogService.record(userId, AuditAction.ACCOUNT_UNFREEZE, accountNumber, null);
+        auditLogService.record(adminId, AuditAction.ACCOUNT_UNFREEZE, accountNumber, null);
         return AccountResponse.from(account);
     }
 

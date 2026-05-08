@@ -28,11 +28,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-
-import static org.mockito.ArgumentMatchers.eq;
 
 import org.mockito.ArgumentCaptor;
 
@@ -77,7 +76,7 @@ class AuthServiceTest {
         LoginRequest req = loginRequest("a@b.com", "plain");
         when(userRepository.findByEmail("a@b.com")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("plain", "ENC")).thenReturn(true);
-        when(jwtTokenProvider.generateToken(10L, "a@b.com")).thenReturn("AT");
+        when(jwtTokenProvider.generateToken(eq(10L), eq("a@b.com"), any())).thenReturn("AT");
 
         TokenResponse res = authService.login(req);
 
@@ -141,7 +140,7 @@ class AuthServiceTest {
         User user = createUser(10L, "a@b.com", "ENC");
         when(refreshTokenRepository.findByToken("rt-3")).thenReturn(Optional.of(valid));
         when(userRepository.findById(10L)).thenReturn(Optional.of(user));
-        when(jwtTokenProvider.generateToken(10L, "a@b.com")).thenReturn("AT-NEW");
+        when(jwtTokenProvider.generateToken(eq(10L), eq("a@b.com"), any())).thenReturn("AT-NEW");
 
         TokenResponse res = authService.refresh(tokenRequest("rt-3"));
 
