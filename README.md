@@ -38,6 +38,7 @@
 - **API Docs**: SpringDoc OpenAPI 2.8.5
 - **Rate Limiting**: Bucket4j 8.10.1
 - **Build / Test**: Gradle, JUnit 5, Mockito, H2 (테스트)
+- **Infrastructure**: AWS EC2 (Amazon Linux 2023), Docker, Docker Compose
 
 ---
 
@@ -325,8 +326,7 @@ export $(cat .env | xargs)
 java -Xmx256m -jar concurrent-banking-api-0.0.1-SNAPSHOT.jar
 ```
 
-**보안그룹**: SSH(22), TCP 8080 인바운드 허용  
-**비용 절감**: 실습 후 EC2 콘솔에서 Stop 또는 Terminate. t3.micro 기준 약 $0.012/시간.
+**보안그룹**: SSH(22), TCP 8080 인바운드 허용
 
 ### 스키마 마이그레이션 (Flyway)
 - 스키마는 `src/main/resources/db/migration/V*__*.sql` 의 Flyway 마이그레이션이 관리한다 (`ddl-auto=validate`).
