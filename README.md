@@ -6,6 +6,7 @@
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.3-6DB33F?logo=spring&logoColor=white)
 ![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1?logo=mysql&logoColor=white)
 ![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)
+![AWS EC2](https://img.shields.io/badge/AWS-EC2-FF9900?logo=amazonaws&logoColor=white)
 
 뱅킹 도메인의 **동시성·정합성·멱등성** 문제를 실무 수준의 정합성 요구사항을 구현한 Spring Boot 백엔드 API.
 계좌 개설부터 이체까지의 거래 흐름을 **레이어드 락 · 감사 로그 · 거래 한도 · 상태 머신** 위에 구현했습니다.
@@ -259,16 +260,16 @@ xychart-beta
 
 ### Docker Compose (권장)
 
-```bash
-# 1. .env 파일 생성 (JWT_SECRET 필수)
-cp .env.example .env
-# .env 를 열어 JWT_SECRET 값 입력 (최소 32자 랜덤 문자열)
-# 생성 예시: openssl rand -base64 48
+`docker-compose.yml` 은 **MySQL + Redis 만** 기동합니다. 애플리케이션은 별도로 실행하세요 (아래 로컬 실행 참고).
 
-# 2. 기동
-docker-compose up --build
+```bash
+# 1. .env 파일 생성
+cp .env.example .env
+# .env 를 열어 모든 값 입력 (JWT_SECRET, MYSQL_* 계정 포함)
+
+# 2. MySQL + Redis 기동
+docker-compose up -d
 ```
-MySQL 8, Redis, 애플리케이션이 함께 기동됩니다. DB URL·계정은 `docker-compose.yml`에 하드코딩되어 있으며 `JWT_SECRET` 만 외부 주입이 필요합니다.
 
 ### 로컬 실행
 ```bash
@@ -287,6 +288,45 @@ SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
 # 기본(프로필 미지정) 기동은 운영 안전 디폴트 — show-sql=false, 로그 INFO/WARN
 ./gradlew bootRun
 ```
+
+### AWS EC2 배포 (단일 인스턴스)
+
+로컬에서 jar 빌드 후 EC2로 전송하는 방식. EC2 위에서 Gradle 빌드를 돌리면 t3.micro(1GB RAM)에서 OOM이 발생하므로 로컬 빌드를 권장합니다.
+
+**인프라 구성**
+- EC2 t3.micro (Amazon Linux 2023) — 앱 실행
+- Docker Compose (MySQL 8 + Redis 7) — 같은 인스턴스에서 컨테이너로 실행
+
+**배포 절차**
+
+```bash
+# 로컬: jar 빌드
+./gradlew bootJar
+
+# 로컬: EC2로 전송
+scp -i "your-key.pem" build/libs/concurrent-banking-api-0.0.1-SNAPSHOT.jar ec2-user@<EC2_IP>:~/concurrent-banking-api/
+
+# EC2: Docker, Docker Compose, Java 21 설치
+sudo dnf install -y docker git java-21-amazon-corretto-headless
+sudo systemctl start docker && sudo usermod -aG docker ec2-user
+sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+
+# EC2: 프로젝트 클론 + .env 생성
+git clone https://github.com/jung32111/concurrent-banking-api.git
+cd concurrent-banking-api
+# .env 파일 작성 (JWT_SECRET, DB_*, MYSQL_* 값 입력)
+
+# EC2: MySQL + Redis 기동
+docker-compose up -d
+
+# EC2: 앱 실행 (메모리 제한 필수)
+export $(cat .env | xargs)
+java -Xmx256m -jar concurrent-banking-api-0.0.1-SNAPSHOT.jar
+```
+
+**보안그룹**: SSH(22), TCP 8080 인바운드 허용  
+**비용 절감**: 실습 후 EC2 콘솔에서 Stop 또는 Terminate. t3.micro 기준 약 $0.012/시간.
 
 ### 스키마 마이그레이션 (Flyway)
 - 스키마는 `src/main/resources/db/migration/V*__*.sql` 의 Flyway 마이그레이션이 관리한다 (`ddl-auto=validate`).
