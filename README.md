@@ -114,7 +114,7 @@ com.bank
 | Method | Path | 설명 |
 |---|---|---|
 | POST | `/transactions` | 입금 / 출금 (Idempotency-Key 필수) |
-| GET | `/transactions/{accountNumber}` | 거래 내역 (페이징) |
+| GET | `/transactions/{accountNumber}` | 거래 내역 (커서 기반 페이징, `cursor` · `size` 파라미터) |
 | POST | `/transfers` | 계좌 이체 (Idempotency-Key 필수) |
 
 Swagger UI: `http://localhost:8080/swagger-ui.html`
@@ -373,7 +373,7 @@ java -Xmx256m -jar concurrent-banking-api-0.0.1-SNAPSHOT.jar
 | **컨트롤러 슬라이스 (`@WebMvcTest`)** | |
 | `AuthControllerTest` | 회원가입·로그인·로그아웃 HTTP 상태코드, Bean Validation (이메일·비밀번호 형식), 중복 이메일 409, RT 재사용 401 |
 | `AccountControllerTest` | 인증 없음 401, 계좌 개설·조회·잔액·동결·해제·활성화 엔드포인트, 타인 계좌 403·미존재 404 |
-| `TransactionControllerTest` | 입금 성공 201, 잔액 부족·필드 누락·음수 금액 400, 거래 내역 페이징 |
+| `TransactionControllerTest` | 입금 성공 201, 잔액 부족·필드 누락·음수 금액 400, 거래 내역 커서 기반 페이징 |
 | `TransferControllerTest` | 이체 성공·필드 누락·0원 400, 동결 계좌·분산 락 실패 409, 한도 초과 422 |
 | **서비스** | |
 | `AuthServiceTest` | 회원가입 / 로그인 / RTR |
