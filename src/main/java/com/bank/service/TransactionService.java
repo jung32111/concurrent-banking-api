@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.bank.dto.CursorPageResponse;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Slice;
 import java.math.BigDecimal;
 import java.util.List;
 
@@ -72,13 +73,12 @@ public class TransactionService {
 
         validateOwner(account, userId);
 
-        PageRequest limit = PageRequest.of(0, size + 1);
-        List<Transaction> transactions = cursor == null
-                ? transactionRepository.findByAccountOrderByIdDesc(account, limit)
-                : transactionRepository.findByAccountAndIdLessThanOrderByIdDesc(account, cursor, limit);
+        Slice<Transaction> slice = cursor == null
+                ? transactionRepository.findByAccountOrderByIdDesc(account, PageRequest.of(0, size))
+                : transactionRepository.findByAccountAndIdLessThanOrderByIdDesc(account, cursor, PageRequest.of(0, size));
 
-        boolean hasNext = transactions.size() > size;
-        List<Transaction> pageData = hasNext ? transactions.subList(0, size) : transactions;
+        boolean hasNext = slice.hasNext();
+        List<Transaction> pageData = slice.getContent();
         Long nextCursor = hasNext ? pageData.get(pageData.size() - 1).getId() : null;
 
         return CursorPageResponse.of(
