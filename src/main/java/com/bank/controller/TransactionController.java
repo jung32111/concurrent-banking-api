@@ -1,6 +1,7 @@
 package com.bank.controller;
 
 import com.bank.dto.ApiResponse;
+import com.bank.dto.CursorPageResponse;
 import com.bank.dto.TransactionCreateRequest;
 import com.bank.dto.TransactionResponse;
 import com.bank.service.TransactionService;
@@ -9,8 +10,6 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -39,19 +38,19 @@ public class TransactionController {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(response));
     }
 
-    @Operation(summary = "거래 내역 조회", description = "페이지네이션 지원 (기본 page=0, size=20)")
+    @Operation(summary = "거래 내역 조회", description = "커서 기반 페이지네이션. cursor 미전달 시 최신부터 조회. nextCursor로 다음 페이지 요청")
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "본인 계좌가 아님")
     })
     @GetMapping("/{accountNumber}")
-    public ResponseEntity<ApiResponse<Page<TransactionResponse>>> getTransactions(
+    public ResponseEntity<ApiResponse<CursorPageResponse<TransactionResponse>>> getTransactions(
             @PathVariable String accountNumber,
-            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(required = false) Long cursor,
             @RequestParam(defaultValue = "20") int size,
             @AuthenticationPrincipal Long userId) {
-        Page<TransactionResponse> result = transactionService.getTransactions(
-                accountNumber, userId, PageRequest.of(page, size));
+        CursorPageResponse<TransactionResponse> result = transactionService.getTransactions(
+                accountNumber, userId, cursor, size);
         return ResponseEntity.ok(ApiResponse.ok(result));
     }
 }

@@ -1,5 +1,6 @@
 package com.bank.controller;
 
+import com.bank.dto.CursorPageResponse;
 import com.bank.dto.TransactionResponse;
 import com.bank.entity.TransactionType;
 import com.bank.exception.InsufficientBalanceException;
@@ -14,8 +15,6 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -26,6 +25,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
@@ -132,18 +132,18 @@ class TransactionControllerTest {
     }
 
     @Test
-    @DisplayName("거래 내역 조회 - 페이징 포함 200 반환")
+    @DisplayName("거래 내역 조회 - 커서 기반 200 반환")
     void getTransactions_withAuth_returns200() throws Exception {
-        given(transactionService.getTransactions(eq(ACCOUNT_NO), eq(USER_ID), any(PageRequest.class)))
-                .willReturn(new PageImpl<>(
+        given(transactionService.getTransactions(eq(ACCOUNT_NO), eq(USER_ID), any(), anyInt()))
+                .willReturn(new CursorPageResponse<>(
                         List.of(stubTransaction(ACCOUNT_NO, TransactionType.DEPOSIT, BigDecimal.valueOf(10_000))),
-                        PageRequest.of(0, 20), 1));
+                        null, false));
 
         mockMvc.perform(get("/transactions/{no}", ACCOUNT_NO)
                         .with(authentication(AUTH)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.content[0].type").value("DEPOSIT"))
-                .andExpect(jsonPath("$.data.totalElements").value(1));
+                .andExpect(jsonPath("$.data.data[0].type").value("DEPOSIT"))
+                .andExpect(jsonPath("$.data.hasNext").value(false));
     }
 
     private TransactionResponse stubTransaction(String accountNumber, TransactionType type, BigDecimal amount) {

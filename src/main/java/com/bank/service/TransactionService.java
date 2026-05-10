@@ -17,9 +17,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
+import com.bank.dto.CursorPageResponse;
+import org.springframework.data.domain.PageRequest;
 import java.math.BigDecimal;
+import java.util.List;
 
 @Slf4j
 @Service
@@ -64,15 +65,27 @@ public class TransactionService {
     }
 
     @Transactional(readOnly = true)
-    public Page<TransactionResponse> getTransactions(String accountNumber, Long userId, Pageable pageable) {
+    public CursorPageResponse<TransactionResponse> getTransactions(String accountNumber, Long userId, Long cursor, int size) {
         log.info("[SERVICE] 거래 내역 조회 시작 - accountNumber: {}", LogMaskingUtil.maskAccountNumber(accountNumber));
         Account account = accountRepository.findByAccountNumber(accountNumber)
                 .orElseThrow(AccountNotFoundException::new);
 
         validateOwner(account, userId);
 
-        return transactionRepository.findByAccountOrderByCreatedAtDesc(account, pageable)
-                .map(TransactionResponse::from);
+        PageRequest limit = PageRequest.of(0, size + 1);
+        List<Transaction> transactions = cursor == null
+                ? transactionRepository.findByAccountOrderByIdDesc(account, limit)
+                : transactionRepository.findByAccountAndIdLessThanOrderByIdDesc(account, cursor, limit);
+
+        boolean hasNext = transactions.size() > size;
+        List<Transaction> pageData = hasNext ? transactions.subList(0, size) : transactions;
+        Long nextCursor = hasNext ? pageData.get(pageData.size() - 1).getId() : null;
+
+        return CursorPageResponse.of(
+                pageData.stream().map(TransactionResponse::from).toList(),
+                nextCursor,
+                hasNext
+        );
     }
 
     public TransactionResponse deposit(String accountNumber, BigDecimal amount, String description, Long userId) {
