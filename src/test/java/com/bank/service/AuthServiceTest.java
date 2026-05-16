@@ -12,6 +12,8 @@ import com.bank.exception.InvalidTokenException;
 import com.bank.repository.RefreshTokenRepository;
 import com.bank.repository.UserRepository;
 import com.bank.security.JwtTokenProvider;
+import com.bank.security.TokenBlacklistService;
+import com.bank.service.LoginAttemptService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -43,6 +45,8 @@ class AuthServiceTest {
     @Mock private PasswordEncoder passwordEncoder;
     @Mock private JwtTokenProvider jwtTokenProvider;
     @Mock private AuditLogService auditLogService;
+    @Mock private TokenBlacklistService tokenBlacklistService;
+    @Mock private LoginAttemptService loginAttemptService;
 
     @InjectMocks private AuthService authService;
 
@@ -151,8 +155,13 @@ class AuthServiceTest {
 
     @Test
     void logout_deletesAllRefreshTokens() {
-        authService.logout(10L);
+        when(jwtTokenProvider.getJti("test-at")).thenReturn("jti-1");
+        when(jwtTokenProvider.getRemainingExpirySeconds("test-at")).thenReturn(300L);
+
+        authService.logout(10L, "test-at");
+
         verify(refreshTokenRepository).deleteByUserId(10L);
+        verify(tokenBlacklistService).blacklist("jti-1", 300L);
         verify(auditLogService).record(eq(10L), any(), any(), any());
     }
 
