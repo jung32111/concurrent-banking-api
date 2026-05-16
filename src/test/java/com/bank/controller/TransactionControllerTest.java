@@ -7,6 +7,7 @@ import com.bank.exception.InsufficientBalanceException;
 import com.bank.filter.TraceIdFilter;
 import com.bank.security.JwtTokenProvider;
 import com.bank.security.SecurityConfig;
+import com.bank.security.TokenBlacklistService;
 import com.bank.service.TransactionService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -55,6 +56,7 @@ class TransactionControllerTest {
     @Autowired MockMvc mockMvc;
     @MockitoBean TransactionService transactionService;
     @MockitoBean JwtTokenProvider jwtTokenProvider;
+    @MockitoBean TokenBlacklistService tokenBlacklistService;
 
     @Test
     @DisplayName("입출금 - 인증 없으면 401")

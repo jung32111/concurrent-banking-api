@@ -7,6 +7,7 @@ import com.bank.exception.InvalidTokenException;
 import com.bank.filter.TraceIdFilter;
 import com.bank.security.JwtTokenProvider;
 import com.bank.security.SecurityConfig;
+import com.bank.security.TokenBlacklistService;
 import com.bank.service.AuthService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
@@ -51,6 +52,7 @@ class AuthControllerTest {
     @Autowired ObjectMapper objectMapper;
     @MockitoBean AuthService authService;
     @MockitoBean JwtTokenProvider jwtTokenProvider;
+    @MockitoBean TokenBlacklistService tokenBlacklistService;
 
     @Test
     @DisplayName("회원가입 성공 - 201 반환")

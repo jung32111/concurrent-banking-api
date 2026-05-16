@@ -8,6 +8,7 @@ import com.bank.exception.TransactionLimitExceededException;
 import com.bank.filter.TraceIdFilter;
 import com.bank.security.JwtTokenProvider;
 import com.bank.security.SecurityConfig;
+import com.bank.security.TokenBlacklistService;
 import com.bank.service.TransferService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -55,6 +56,7 @@ class TransferControllerTest {
     @Autowired MockMvc mockMvc;
     @MockitoBean TransferService transferService;
     @MockitoBean JwtTokenProvider jwtTokenProvider;
+    @MockitoBean TokenBlacklistService tokenBlacklistService;
 
     @Test
     @DisplayName("이체 - 인증 없으면 401")

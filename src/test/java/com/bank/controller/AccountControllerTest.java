@@ -7,6 +7,7 @@ import com.bank.exception.UnauthorizedAccessException;
 import com.bank.filter.TraceIdFilter;
 import com.bank.security.JwtTokenProvider;
 import com.bank.security.SecurityConfig;
+import com.bank.security.TokenBlacklistService;
 import com.bank.service.AccountService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -59,6 +60,7 @@ class AccountControllerTest {
     @Autowired MockMvc mockMvc;
     @MockitoBean AccountService accountService;
     @MockitoBean JwtTokenProvider jwtTokenProvider;
+    @MockitoBean TokenBlacklistService tokenBlacklistService;
 
     @Test
     @DisplayName("계좌 목록 조회 - 인증 없으면 401")
