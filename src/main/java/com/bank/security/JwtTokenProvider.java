@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.Key;
 import java.util.Date;
 import java.util.Map;
+import java.util.UUID;
 
 @Component
 public class JwtTokenProvider {
@@ -25,12 +26,23 @@ public class JwtTokenProvider {
     private long accessTokenExpirationMs;
 
     public String generateToken(Long userId, String email, UserRole role) {
+        String jti = UUID.randomUUID().toString();
         return Jwts.builder()
-                .setClaims(Map.of("userId", userId, "email", email, "role", role.name()))
+                .setClaims(Map.of("userId", userId, "email", email, "role", role.name(), "jti", jti))
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + accessTokenExpirationMs))
                 .signWith(getSigningKey(), SignatureAlgorithm.HS256)
                 .compact();
+    }
+
+    public String getJti(String token) {
+        return (String) getClaims(token).get("jti");
+    }
+
+    public long getRemainingExpirySeconds(String token) {
+        Date expiration = getClaims(token).getExpiration();
+        long remainingMs = expiration.getTime() - System.currentTimeMillis();
+        return Math.max(0, remainingMs / 1000);
     }
 
     public Long getUserId(String token) {

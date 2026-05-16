@@ -71,7 +71,7 @@ public class AuthController {
             String token = bearerToken.substring(7);
             if (jwtTokenProvider.validateToken(token)) {
                 Long userId = jwtTokenProvider.getUserId(token);
-                authService.logout(userId);
+                authService.logout(userId, token);
             }
         }
         return ResponseEntity.ok(ApiResponse.ok());

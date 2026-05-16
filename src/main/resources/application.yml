@@ -55,6 +55,9 @@ bank:
     limit:
       per-transaction: 10000000
       per-day: 50000000
+  login:
+    max-attempts: 5
+    lockout-duration-minutes: 30
 
 logging:
   level:

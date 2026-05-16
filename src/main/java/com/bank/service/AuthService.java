@@ -7,6 +7,7 @@ import com.bank.dto.TokenResponse;
 import com.bank.entity.AuditAction;
 import com.bank.entity.RefreshToken;
 import com.bank.entity.User;
+import com.bank.exception.AccountLockedException;
 import com.bank.exception.DuplicateEmailException;
 import com.bank.exception.InvalidCredentialsException;
 import com.bank.exception.InvalidTokenException;
@@ -14,6 +15,7 @@ import com.bank.exception.UserNotFoundException;
 import com.bank.repository.RefreshTokenRepository;
 import com.bank.repository.UserRepository;
 import com.bank.security.JwtTokenProvider;
+import com.bank.security.TokenBlacklistService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,10 +35,15 @@ public class AuthService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
+    private final TokenBlacklistService tokenBlacklistService;
+    private final LoginAttemptService loginAttemptService;
     private final AuditLogService auditLogService;
 
     @Value("${jwt.refresh-token-expiration-days:7}")
     private int refreshTokenExpirationDays;
+
+    @Value("${bank.login.lockout-duration-minutes:30}")
+    private int lockoutDurationMinutes;
 
     @Transactional
     public void signup(SignupRequest request) {
@@ -58,13 +65,24 @@ public class AuthService {
     @Transactional
     public TokenResponse login(LoginRequest request) {
         log.info("[SERVICE] AuthService.login() - 로그인 처리 시작");
+
+        if (loginAttemptService.isLocked(request.getEmail())) {
+            throw new AccountLockedException(lockoutDurationMinutes);
+        }
+
         User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(InvalidCredentialsException::new);
+                .orElseThrow(() -> {
+                    loginAttemptService.recordFailure(request.getEmail());
+                    return new InvalidCredentialsException();
+                });
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+            loginAttemptService.recordFailure(request.getEmail());
+            auditLogService.record(user.getId(), AuditAction.LOGIN_FAILED, null, null);
             throw new InvalidCredentialsException();
         }
 
+        loginAttemptService.recordSuccess(request.getEmail());
         String accessToken = jwtTokenProvider.generateToken(user.getId(), user.getEmail(), user.getRole());
         String refreshToken = issueRefreshToken(user.getId());
         auditLogService.record(user.getId(), AuditAction.LOGIN, null, null);
@@ -106,9 +124,12 @@ public class AuthService {
     }
 
     @Transactional
-    public void logout(Long userId) {
+    public void logout(Long userId, String accessToken) {
         log.info("[SERVICE] AuthService.logout() - 로그아웃 처리 시작");
         refreshTokenRepository.deleteByUserId(userId);
+        String jti = jwtTokenProvider.getJti(accessToken);
+        long remainingSeconds = jwtTokenProvider.getRemainingExpirySeconds(accessToken);
+        tokenBlacklistService.blacklist(jti, remainingSeconds);
         auditLogService.record(userId, AuditAction.LOGOUT, null, null);
     }
 

@@ -1,6 +1,7 @@
 package com.bank.exception;
 
 import com.bank.dto.ApiResponse;
+import com.bank.exception.AccountLockedException;
 import com.bank.exception.InvalidTokenException;
 import com.bank.exception.IdempotencyHashMismatchException;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +31,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleUnauthorizedAccess(UnauthorizedAccessException e) {
         log.error("[ERROR] UnauthorizedAccessException - {}", e.getMessage());
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error(e.getMessage()));
+    }
+
+    @ExceptionHandler(AccountLockedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAccountLocked(AccountLockedException e) {
+        log.warn("[WARN] AccountLockedException - {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.LOCKED).body(ApiResponse.error(e.getMessage()));
     }
 
     @ExceptionHandler(InvalidCredentialsException.class)
