@@ -173,7 +173,32 @@ RT 사용 시마다 새로운 RT 발급 + 기존 RT는 `used=true`.
 ### 6. 감사 로그 독립 트랜잭션
 `AuditLogService.record()` 는 `@Transactional(propagation = REQUIRES_NEW)`.
 본 트랜잭션이 롤백돼도 감사 기록은 보존됩니다 (규제·감사 요구사항).
-로그 출력 시 계좌번호는 `LogMaskingUtil`로 PII 마스킹(`100-12345678` → `100-****5678`)합니다.
+
+**기록 필드** (`audit_log` 테이블에 영구 저장)
+
+| 필드 | 설명 |
+|---|---|
+| `userId` | 행위 주체 |
+| `action` | `AuditAction` enum |
+| `accountNumber` | `LogMaskingUtil`로 마스킹 (`100-****5678`) |
+| `amount` | 거래 금액 |
+| `ipAddress` | `X-Forwarded-For` 우선 → `remoteAddr` → 실패 시 `UNKNOWN` |
+| `createdAt` | 생성 시각 (`BaseTimeEntity`) |
+
+DB 저장과 동시에 콘솔에도 한 줄로 출력합니다. DB 기록은 영구 보존,
+콘솔 로그는 재시작 시 휘발됩니다.
+
+```text
+2026-06-03 14:02:11.345 [http-nio-8080-exec-1] INFO  c.b.s.AuditLogService [ traceId=a1b2c3d4e5f60718] - [AUDIT] userId=1, action=TRANSFER, account=100-****5678, amount=50000, ip=192.168.0.1
+```
+
+`TraceIdFilter`가 MDC에 넣은 `traceId`가 같은 스레드에서 실행되는 감사 로그에도
+자동으로 붙어(`%X{traceId}`), 하나의 요청 흐름 전체를 추적할 수 있습니다.
+
+**클라이언트 IP 추출** — 프록시·로드밸런서 뒤에서는 `remoteAddr`가 실제 사용자가
+아닌 중간 노드 IP로 잡힙니다. 그래서 `resolveClientIp()`는 `X-Forwarded-For`
+헤더(최초 클라이언트 IP)를 먼저 보고, 없을 때만 `remoteAddr`로 폴백,
+둘 다 실패하면 `UNKNOWN`으로 기록합니다.
 
 **기록 이벤트 (`AuditAction`)**
 
